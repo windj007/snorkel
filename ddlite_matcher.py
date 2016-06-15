@@ -112,11 +112,51 @@ class DictionaryMatch(CandidateExtractor):
         if self.longest_match and any(set(ssidx) <= ms for ms in matched_seqs):
           continue
         phrase = ' '.join(seq[i:i+l])
+        if phrase.lower() == 'deficiency' and i+l<L and seq[i+l].lower() in ['in', 'of']:
+            continue
         phrase = phrase.lower() if self.ignore_case else phrase
         if phrase in self.dl[l]:
+          min_idx = min(ssidx)
+          max_idx = max(ssidx)
+          if (max_idx+1<L and seq[max_idx+1].lower() in ['deficiency', 'deficient', 'deficienty', 'syndrome']):
+            ssidx = range(min_idx, max_idx+2)
+          min_idx = min(ssidx)
+          max_idx = max(ssidx)
+          if (max_idx+2<L and seq[max_idx+1].lower() in ['type', 'class', 'stage', 'factor'] and (seq[max_idx+2].lower() in ['i', 'ii', 'iii', 'vi', 'v', 'vi', '1A', 'IID'] or seq[max_idx+2].isdigit())):
+            ssidx = range(min_idx, max_idx+3)
+          min_idx = min(ssidx)
+          max_idx = max(ssidx)
+          if (min_idx-2>=0 and seq[min_idx-2].lower() in ['type', 'class', 'stage', 'factor'] and (seq[min_idx-1].lower() in ['i', 'ii', 'iii', 'iv', 'v', 'vi', '1A', 'iid'] or seq[min_idx-1].isdigit())):
+            ssidx = range(min_idx-2, max_idx+1)
+          min_idx = min(ssidx)
+          max_idx = max(ssidx)
+          if (min_idx-2>=0 and seq[min_idx-2].lower() in ['deficiency'] and seq[min_idx-1].lower() in ['of']):
+            ssidx = range(min_idx-2, max_idx+1)
+          if any(set(ssidx) <= ms for ms in matched_seqs):
+            continue
           matched_seqs.append(frozenset(ssidx))
           yield list(ssidx), self.label
-
+    checkbox = []
+    matched_seqs = sorted(matched_seqs, key=lambda x:min(x))
+    for i in range(len(matched_seqs)):
+        if i in checkbox: continue
+        min_idx = min(list(matched_seqs[i]))
+        max_idx = max(list(matched_seqs[i]))
+        haveone = True
+        checked = False
+        checkbox.append(i)
+        while haveone:
+            haveone = False
+            for j in range(len(matched_seqs)):
+                if j not in checkbox and (max_idx + 1 == min(list(matched_seqs[j])) or (max_idx + 2 == min(list(matched_seqs[j])) and seq[max_idx + 1].lower() in ['and/or', 'of', 'and', 'or'])):
+                    checkbox.append(j)
+                    max_idx = max(list(matched_seqs[j]))
+                    haveone = True
+                    checked = True
+                    break
+        if checked:
+            pass
+            #yield list(range(min_idx, max_idx + 1)), self.label
 
 class RegexBase(CandidateExtractor):
   """Parent class for Regex-related candidate extractors"""
