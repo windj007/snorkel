@@ -122,16 +122,20 @@ class DictionaryMatch(CandidateExtractor):
             ssidx = range(min_idx, max_idx+2)
           min_idx = min(ssidx)
           max_idx = max(ssidx)
-          if (max_idx+2<L and seq[max_idx+1].lower() in ['type', 'class', 'stage', 'factor'] and (seq[max_idx+2].lower() in ['i', 'ii', 'iii', 'vi', 'v', 'vi', '1A', 'IID'] or seq[max_idx+2].isdigit())):
+          if (max_idx+2<L and seq[max_idx+1].lower() in ['type', 'class', 'stage', 'factor'] and (seq[max_idx+2].lower() in ['i', 'ii', 'iii', 'vi', 'v', 'vi', '1a', 'iid', 'a', 'b', 'c', 'd'] or seq[max_idx+2].isdigit())):
             ssidx = range(min_idx, max_idx+3)
           min_idx = min(ssidx)
           max_idx = max(ssidx)
-          if (min_idx-2>=0 and seq[min_idx-2].lower() in ['type', 'class', 'stage', 'factor'] and (seq[min_idx-1].lower() in ['i', 'ii', 'iii', 'iv', 'v', 'vi', '1A', 'iid'] or seq[min_idx-1].isdigit())):
+          if (min_idx-2>=0 and seq[min_idx-2].lower() in ['type', 'class', 'stage', 'factor'] and (seq[min_idx-1].lower() in ['i', 'ii', 'iii', 'iv', 'v', 'vi', '1a', 'iid', 'a', 'b', 'c', 'd'] or seq[min_idx-1].isdigit())):
             ssidx = range(min_idx-2, max_idx+1)
           min_idx = min(ssidx)
           max_idx = max(ssidx)
           if (min_idx-2>=0 and seq[min_idx-2].lower() in ['deficiency'] and seq[min_idx-1].lower() in ['of']):
             ssidx = range(min_idx-2, max_idx+1)
+          min_idx = min(ssidx)
+          max_idx = max(ssidx)
+          if (min_idx-1>=0 and seq[min_idx-1].lower() in ['inherited']):
+            ssidx = range(min_idx-1, max_idx+1)
           if any(set(ssidx) <= ms for ms in matched_seqs):
             continue
           matched_seqs.append(frozenset(ssidx))
