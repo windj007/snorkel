@@ -1158,13 +1158,20 @@ class DDLiteModel:
     Return either all candidates, a specified subset, or only validation/test set
     """
     return odds_to_prob(self.get_log_odds(subset))
- 
+
   def get_predicted(self, subset=None):
     """
     Get the array of predicted (boolean) variables given weights
     Return either all variables, a specified subset, or only validation/test set
     """
     return np.sign(self.get_log_odds(subset))
+
+  def get_predicted_threshold(self, threshold=0.5, subset=None):
+    """
+    Get the array of predicted (boolean) variables given weights
+    Return either all variables, a specified subset, or only validation/test set
+    """
+    return np.sign(odds_to_prob(self.get_log_odds(subset)) - threshold)
 
   def get_classification_accuracy(self, subset=None):
     """

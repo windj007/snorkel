@@ -118,7 +118,8 @@ class DictionaryMatch(CandidateExtractor):
         if phrase in self.dl[l]:
           min_idx = min(ssidx)
           max_idx = max(ssidx)
-          if (max_idx+1<L and seq[max_idx+1].lower() in ['deficiency', 'deficient', 'deficienty', 'syndrome']):
+          if (max_idx+1<L and seq[max_idx+1].lower() in ['deficiency', 'deficient', 'deficienty']):
+#          if (max_idx+1<L and seq[max_idx+1].lower() in ['deficiency', 'deficient', 'deficienty']):
             ssidx = range(min_idx, max_idx+2)
           min_idx = min(ssidx)
           max_idx = max(ssidx)
