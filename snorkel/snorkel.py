@@ -77,6 +77,7 @@ class TrainingSet(object):
                 self.dev_candidates = dev_candidates
                 self.dev_labels     = dev_labels
                 self.L_dev          = self._apply_lfs(dev_candidates)
+            d['n']        = Series(data=np.ravel(sparse_abs(self.L_dev).sum(axis=0)), index=self.lf_names)
             d['accuracy'] = Series(data=LF_accuracies(self.L_dev, self.dev_labels), index=self.lf_names)
         return DataFrame(data=d, index=self.lf_names)
 

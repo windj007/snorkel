@@ -261,6 +261,10 @@ class Ngrams(CandidateSpace):
                 # NOTE: For simplicity, we only split single tokens right now!
                 if l == 1 and self.split_rgx is not None:
                     m = re.search(self.split_rgx, text[char_start-cos[0]:char_end-cos[0]+1])
-                    if m is not None and l < self.n_max:
+                    if m is not None and self.n_max > 0:
                         yield Ngram(char_start=char_start, char_end=char_start + m.start(1) - 1, sent=s)
                         yield Ngram(char_start=char_start + m.end(1), char_end=char_end, sent=s)
+                    if m is not None:
+                        for j in range(1, self.n_max):
+                            if i>=j:
+                                yield Ngram(char_start=cos[i-j], char_end=char_start + m.start(1) - 1, sent=s)
