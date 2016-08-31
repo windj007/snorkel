@@ -172,26 +172,28 @@ class RelationExtractor(CandidateExtractor):
 class AlignedTableRelationExtractor(CandidateExtractor):
     """Table relation extraction for aligned cells only
 
-    Alignment argument can be:
-        'rows': output candidates aligned over rows
-        'cols': output candidates aligned over columns
-        'both': output candidates aligned over either rows or columns
+    Axis argument can be:
+        'row': output candidates aligned over rows
+        'col': output candidates aligned over columns
+         None: output candidates aligned over either rows or columns
     """
-    def __init__(self, extractor1, extractor2, alignment='both', join_key='context_id'):
+    def __init__(self, extractor1, extractor2, axis=None, join_key='context_id'):
         super(AlignedTableRelationExtractor, self).__init__(parallelism=False, join_key=join_key)
-        self.alignment = alignment
+        self.axis = axis
         self.e1 = extractor1
         self.e2 = extractor2
+        if axis not in ('row', 'col', None):
+            raise Exception('Invalid axis type')
 
     def _extract(self, contexts):
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 for span1 in self.e2._extract([context]):
-                    if self.alignment == 'rows':
+                    if self.axis == 'row':
                         if span0.context.cell.row_num != span1.context.cell.row_num: continue
-                    if self.alignment == 'cols':
+                    if self.axis == 'col':
                         if span0.context.cell.col_num != span1.context.cell.col_num: continue
-                    if self.alignment == 'both':
+                    if self.axis is None:
                         if span0.context.cell.col_num != span1.context.cell.col_num \
                         and span0.context.cell.row_num != span1.context.cell.row_num: continue
 
@@ -257,4 +259,3 @@ class TableNgrams(Ngrams):
         for phrase in phrases:
             for temp_span in super(TableNgrams, self).apply(phrase):
                 yield temp_span
-                
