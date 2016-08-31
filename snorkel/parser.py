@@ -251,26 +251,24 @@ class HTMLParser(DocParser):
 
 class OmniParser(object):
     def __init__(self):
-        self.sentence_parser = SentenceParser()
         self.table_parser = TableParser()
 
     def parse(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
-        for phrase in self.parse_tag(document, soup, [], []):
+        self.table_idx = -1
+        for phrase in self.parse_tag(soup, document):
             yield phrase
 
-    def parse_tag(self, document, tag, anc_tags, anc_attrs):
+    def parse_tag(self, tag, document, table=None, cell=None, anc_tags=[], anc_attrs=[]):
         for child in tag.contents:
             if isinstance(child, NavigableString):
                 for parts in self.table_parser.corenlp_handler.parse(document, unicode(child)):
-                    parts['document_id'] = document.id
-                    parts['table_id'] = None
-                    parts['cell_id'] = None
                     parts['document'] = document
-                    parts['table'] = None
-                    parts['cell'] = None
-                    parts['row_num'] = None
-                    parts['col_num'] = None
+                    parts['table'] = table
+                    parts['cell'] = cell
+                    if cell is not None:
+                        parts['row_num'] = cell.row_num
+                        parts['col_num'] = cell.col_num
                     parts['html_tag'] = tag.name
                     parts['html_attrs'] = tag.attrs
                     parts['html_anc_tags'] = anc_tags
@@ -278,16 +276,32 @@ class OmniParser(object):
                     yield Phrase(**parts)
             else: # isinstance(child, Tag) = True
                 if child.name == "table":
-                    for phrase in self.table_parser.parse(document, unicode(child)):
-                        yield phrase
-                else:
-                    if anc_tags is None:
-                        import pdb; pdb.set_trace()
-                    anc_tags.append(tag.name)
-                    anc_attrs.extend(tag.attrs)
-                    for phrase in self.parse_tag(document, child, anc_tags, anc_attrs):
-                        yield phrase
-
+                    self.table_idx += 1
+                    self.row_num = -1
+                    self.cell_idx = -1
+                    table = Table(document=document, position=self.table_idx, text=unicode(child))
+                elif child.name == "tr":
+                    self.row_num += 1
+                    self.col_num = -1
+                elif child.name in ["td","th"]:
+                    self.cell_idx += 1
+                    self.col_num += 1
+                    parts = defaultdict(list)
+                    parts['document'] = document
+                    parts['table'] = table
+                    parts['position'] = self.cell_idx
+                    parts['text'] = unicode(child.get_text(strip=True))
+                    parts['row_num'] = self.row_num
+                    parts['col_num'] = self.col_num
+                    parts['html_tag'] = child.name
+                    parts['html_attrs'] = split_html_attrs(child.attrs.items())
+                    parts['html_anc_tags'] = anc_tags 
+                    parts['html_anc_attrs'] = anc_attrs
+                    cell = Cell(**parts)
+                anc_tags.append(tag.name)
+                anc_attrs.extend(tag.attrs)
+                for phrase in self.parse_tag(child, document, table, cell, anc_tags, anc_attrs):
+                    yield phrase
 
 class TableParser(object):
     """Simple parsing of the tables in html documents into cells and phrases within cells"""
@@ -298,24 +312,25 @@ class TableParser(object):
     def parse(self, document, text, batch=False):
         # BROKEN: DO NOT USE BATCH MODE FOR NOW
         if batch:
-            for table in self.parse_html(document, text):
-                char_idx = 0
-                cell_start = [char_idx]
-                for cell in self.parse_table(table):
-                    char_idx += len(cell.text)
-                    cell_start.append(char_idx)
-                text_batch = self.delim.join(cell.text for cell in table.cells)
-                char_idx = 0
-                cell_idx = 0
-                position = 0 # position of Phrase in Cell
-                for parts in self.corenlp_handler.parse(document, text_batch):
-                    while char_idx >= cell_start[cell_idx + 1]:
-                        cell_idx += 1
-                        position = 0
-                    parts['position'] = position
-                    char_idx += len(parts['text']) + (position > 0) # account for lost whitespace
-                    position += 1
-                    yield Phrase(**(self.inherit_cell_attrs(table.cells[cell_idx], parts)))
+            raise NotImplementedError
+            # for table in self.parse_html(document, text):
+            #     char_idx = 0
+            #     cell_start = [char_idx]
+            #     for cell in self.parse_table(table):
+            #         char_idx += len(cell.text)
+            #         cell_start.append(char_idx)
+            #     text_batch = self.delim.join(cell.text for cell in table.cells)
+            #     char_idx = 0
+            #     cell_idx = 0
+            #     position = 0 # position of Phrase in Cell
+            #     for parts in self.corenlp_handler.parse(document, text_batch):
+            #         while char_idx >= cell_start[cell_idx + 1]:
+            #             cell_idx += 1
+            #             position = 0
+            #         parts['position'] = position
+            #         char_idx += len(parts['text']) + (position > 0) # account for lost whitespace
+            #         position += 1
+            #         yield Phrase(**(self.inherit_cell_attrs(table.cells[cell_idx], parts)))
 
         else: # not batched
             for table in self.parse_html(document, text):
@@ -326,8 +341,7 @@ class TableParser(object):
     def parse_html(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
         for i, table in enumerate(soup.find_all('table')):
-            yield Table(document_id=document.id,
-                        document=document,
+            yield Table(document=document,
                         position=i,
                         text=str(table))
 
@@ -346,11 +360,9 @@ class TableParser(object):
                 # TODO: include title, caption, footers, etc.
                 if html_cell.name in ['th','td']:
                     parts = defaultdict(list)
-                    parts['document_id'] = table.document_id
-                    parts['table_id'] = table.id
-                    parts['position'] = position
                     parts['document'] = table.document
                     parts['table'] = table
+                    parts['position'] = position
 
                     parts['text'] = unicode(html_cell.get_text(strip=True))
                     parts['row_num'] = row_num
@@ -371,14 +383,9 @@ class TableParser(object):
             yield Phrase(**parts)
 
     def inherit_cell_attrs(self, cell, parts):
-        parts['document_id'] = cell.document_id
-        parts['table_id'] = cell.table_id
-        parts['cell_id'] = cell.id
-
         parts['document'] = cell.document
         parts['table'] = cell.table
         parts['cell'] = cell
-
         parts['row_num'] = cell.row_num
         parts['col_num'] = cell.col_num
         parts['html_tag'] = cell.html_tag
