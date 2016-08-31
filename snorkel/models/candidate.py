@@ -237,6 +237,13 @@ class Span(Candidate, TemporarySpan):
         return (self.row_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive)
               + self.col_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive))
 
+    def head_ngrams(self, axis, attr='words', n_max=3, case_sensitive=False, induced=False):
+        head_cell = self.head_cell(axis, induced=induced)
+        ngrams = chain.from_iterable(
+            self._get_phrase_ngrams(phrase, attr=attr, n_max=n_max) 
+            for cell in cells for phrase in cell.phrases)
+        return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
+
     def row_ngrams(self, attr='words', n_max=3, case_sensitive=False):
         cells = self.row_cells()
         ngrams = chain.from_iterable(
@@ -250,6 +257,29 @@ class Span(Candidate, TemporarySpan):
             self._get_phrase_ngrams(phrase, attr=attr, n_max=n_max) 
             for cell in cells for phrase in cell.phrases)
         return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
+
+    def head_cell(self, axis, induced=False):
+        if axis not in ('row', 'col'): 
+            raise Exception("Axis must equal 'row' or 'col' ")
+
+        cells = self._get_aligned_cells(axis=axis)
+        axis_name = axis + '_num'
+        head_cell = sorted(cells, key=lambda x: getattr(x,axis_name))[0]
+        
+        if induced and not head_cell.text.isspace():
+            other_axis = 'col' if axis == 'row' else 'row'
+            other_axis_name = other_axis + '_num'
+            # get aligned cells to head_cell that appear before head_cell and aren't empty
+            aligned_cells = [cell for cell in head_cell.table.cells
+                             if getattr(cell,other_axis_name) == getattr(head_cell,other_axis_name)
+                             if getattr(cell,axis_name) < getattr(head_cell,axis_name)
+                             and not cell.text.isspace()]
+            # pick the last cell among the ones identified above
+            aligned_cells = sorted(aligned_cells, key=lambda x: getattr(x,axis_name), reverse=True)
+            if aligned_cells:
+                head_cell = aligned_cells[0]
+
+        return head_cell
 
     def row_cells(self):
         return [cell for cell in self._get_aligned_cells(axis='row')]
