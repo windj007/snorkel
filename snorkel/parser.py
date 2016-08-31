@@ -255,6 +255,7 @@ class HTMLParser(DocParser):
 class OmniParser(object):
     def __init__(self):
         self.table_parser = TableParser()
+        self.sentence_parser = SentenceParser()
 
     def parse(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
@@ -264,7 +265,9 @@ class OmniParser(object):
     def parse_tag(self, document, tag):
         for child in tag.contents:
             if isinstance(child, NavigableString):
-                pass
+                for phrase in self.sentence_parser.parse(document, unicode(child)):
+                    print "NON-TABLE:" + unicode(child)
+                    yield phrase
                 # print unicode(child)
             elif isinstance(child, Tag):
                 if child.name == "table":
