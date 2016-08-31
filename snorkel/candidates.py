@@ -257,3 +257,4 @@ class TableNgrams(Ngrams):
         for phrase in phrases:
             for temp_span in super(TableNgrams, self).apply(phrase):
                 yield temp_span
+                

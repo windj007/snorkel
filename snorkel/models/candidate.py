@@ -3,6 +3,7 @@ from sqlalchemy import Table, Column, String, Integer, Text, ForeignKey, Foreign
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.types import PickleType
 from snorkel.utils import slice_into_ngrams
+from itertools import chain
 
 class CandidateSet(SnorkelBase):
     """A named collection of Candidate objects."""
@@ -237,22 +238,35 @@ class Span(Candidate, TemporarySpan):
               + self.col_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive))
 
     def row_ngrams(self, attr='words', n_max=3, case_sensitive=False):
-        ngrams = [ngram for ngram in self._get_aligned_ngrams(attr=attr, n_max=n_max, axis='row')]
+        cells = self.row_cells()
+        ngrams = chain.from_iterable(
+            self._get_phrase_ngrams(phrase, attr=attr, n_max=n_max) 
+            for cell in cells for phrase in cell.phrases)
         return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
 
     def col_ngrams(self, attr='words', n_max=3, case_sensitive=False):
-        ngrams = [ngram for ngram in self._get_aligned_ngrams(attr=attr, n_max=n_max, axis='col')]
+        cells = self.col_cells()
+        ngrams = chain.from_iterable(
+            self._get_phrase_ngrams(phrase, attr=attr, n_max=n_max) 
+            for cell in cells for phrase in cell.phrases)
         return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
 
-    def _get_aligned_ngrams(self, n_max=3, attr='words', axis='row'):
-        axis_name = axis + '_num'
-        phrases = [phrase for phrase in self.context.table.phrases
-            if getattr(phrase,axis_name) == getattr(self.context,axis_name)
-            and phrase != self.context]
-        for phrase in phrases:
-            for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max):
-                yield ngram
+    def row_cells(self):
+        return [cell for cell in self._get_aligned_cells(axis='row')]
 
+    def col_cells(self):
+        return [cell for cell in self._get_aligned_cells(axis='col')]
+
+    def _get_aligned_cells(self, axis='row'):
+        axis_name = axis + '_num'
+        cells = [cell for cell in self.context.table.cells
+            if getattr(cell,axis_name) == getattr(self.context,axis_name)
+            and cell != self.context.cell]
+        return cells
+
+    def _get_phrase_ngrams(self, phrase, n_max=3, attr='words'):
+        for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max):
+            yield ngram
 
 class SpanPair(Candidate):
     """

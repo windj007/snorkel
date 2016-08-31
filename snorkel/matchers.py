@@ -263,17 +263,39 @@ class RangeMatcher(NumberMatcher):
         return super(RangeMatcher,self)._f(cand) and (self.low <= self.num) and (self.num <= self.high)
 
 
-# =======
-# class CandidateExtractor(object):
-#     """Temporary class for interfacing with the post-candidate-extraction code"""
-#     def __init__(self, candidate_space, matcher):
-#         self.candidate_space = candidate_space
-#         self.matcher         = matcher
+class CellNameMatcher(NgramMatcher):
+    """Match cells based on their aligned ngrams
 
-#     def apply(self, s):
-#         for c in self.matcher.apply(self.candidate_space.apply(s)):
-#             try:
-#                 yield range(c.word_start, c.word_end+1), 'MATCHER'
-#             except:
-#                 raise Exception("Candidate must have word_start and word_end attributes.")
-# >>>>>>> tables
+    Cell is matched if any of its aligned row/col cells contain spans 
+    matched by an input row_matcher or col_matcher (respectively).
+
+    This is meant to extract all cells with a certain title (e.g. "phenotype").
+    """
+    def init(self):
+        self.row_matcher = self.opts.get('row_matcher', None)
+        self.col_matcher = self.opts.get('col_matcher', None)
+        self.cand_space  = self.opts.get('cand_space', None)
+        if not self.cand_space:
+            raise Exception("Please provide candidate space for CellNameMatcher")
+
+    def _f(self, c):
+        c_span = c.promote()
+        row_matches, col_matches = True, True
+        if self.row_matcher:
+            row_phrases = [phrase for cell in c_span.row_cells() for phrase in cell.phrases]
+            if [col_c for c_phrase in row_phrases for col_c in 
+                self.row_matcher.apply(self.cand_space.apply(c_phrase))]:
+                row_matches = True
+            else:
+                row_matches = False
+
+        if self.col_matcher:
+            col_phrases = [phrase for cell in c_span.col_cells() for phrase in cell.phrases]
+            if [col_c for c_phrase in col_phrases for col_c in 
+                self.col_matcher.apply(self.cand_space.apply(c_phrase))]:
+                col_matches = True
+            else:
+                col_matches = False
+
+        return True if row_matches and col_matches else False
+
