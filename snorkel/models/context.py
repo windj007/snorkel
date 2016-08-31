@@ -45,6 +45,9 @@ class Corpus(Context):
     def get_tables(self):
         return [table for doc in self.documents for table in doc.tables]
 
+    def get_phrases(self):
+        return [phrase for doc in self.documents for phrase in doc.phrases]
+
 
 class Document(Context):
     """An object in a Corpus."""

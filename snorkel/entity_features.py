@@ -122,8 +122,6 @@ def _get_window_features(cand, idxs, window=3, combinations=True, isolated=True)
                     curr_left_poses + "]_[" + curr_right_poses + "]"
 
 def get_table_feats(cand):
-    yield u"ROW_NUM_[%s]" % cand.context.row_num
-    yield u"COL_NUM_[%s]" % cand.context.col_num
     yield u"HTML_TAG_" + cand.context.html_tag
     for attr in cand.context.html_attrs:
         yield u"HTML_ATTR_" + attr
@@ -131,37 +129,40 @@ def get_table_feats(cand):
         yield u"HTML_ANC_TAG_" + tag
     for attr in cand.context.html_anc_attrs:
         yield u"HTML_ANC_ATTR_" + attr
-    for attr in ['words']: # ['lemmas','poses']
-        for ngram in cand.row_ngrams(attr=attr):
-            yield "ROW_%s_%s" % (attr.upper(), ngram)
-            if attr=="lemmas":
-                try:
-                    if float(ngram).is_integer():
-                        yield u"ROW_INT"
-                    else:
-                        yield u"ROW_FLOAT"
-                except:
-                    pass
-        for ngram in cand.col_ngrams(attr=attr):
-            yield "COL_%s_%s" % (attr.upper(), ngram)
-            if attr=="lemmas":
-                try:
-                    if float(ngram).is_integer():
-                        yield u"COL_INT"
-                    else:
-                        yield u"COL_FLOAT"
-                except:
-                    pass
-        for (ngram, side) in cand.neighbor_ngrams(attr=attr):
-            yield "NEIGHBOR_%s_%s_%s" % (side, attr.upper(), ngram)
-            if attr=="lemmas":
-                try:
-                    if float(ngram).is_integer():
-                        yield "NEIGHBOR_%s_INT" % side
-                    else:
-                        yield "NEIGHBOR_%s_FLOAT" % side
-                except:
-                    pass
+    if cand.context.row_num is not None and cand.context.col_num is not None:
+        yield u"ROW_NUM_[%s]" % cand.context.row_num
+        yield u"COL_NUM_[%s]" % cand.context.col_num
+        for attr in ['words']: # ['lemmas','poses']
+            for ngram in cand.row_ngrams(attr=attr):
+                yield "ROW_%s_%s" % (attr.upper(), ngram)
+                if attr=="lemmas":
+                    try:
+                        if float(ngram).is_integer():
+                            yield u"ROW_INT"
+                        else:
+                            yield u"ROW_FLOAT"
+                    except:
+                        pass
+            for ngram in cand.col_ngrams(attr=attr):
+                yield "COL_%s_%s" % (attr.upper(), ngram)
+                if attr=="lemmas":
+                    try:
+                        if float(ngram).is_integer():
+                            yield u"COL_INT"
+                        else:
+                            yield u"COL_FLOAT"
+                    except:
+                        pass
+            for (ngram, side) in cand.neighbor_ngrams(attr=attr):
+                yield "NEIGHBOR_%s_%s_%s" % (side, attr.upper(), ngram)
+                if attr=="lemmas":
+                    try:
+                        if float(ngram).is_integer():
+                            yield "NEIGHBOR_%s_INT" % side
+                        else:
+                            yield "NEIGHBOR_%s_FLOAT" % side
+                    except:
+                        pass
 
 def get_relation_table_feats(cand):
     if cand.span0.context.table == cand.span1.context.table:

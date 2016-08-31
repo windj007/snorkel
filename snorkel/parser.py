@@ -256,26 +256,37 @@ class OmniParser(object):
 
     def parse(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
-        for phrase in self.parse_tag(document, soup):
+        for phrase in self.parse_tag(document, soup, [], []):
             yield phrase
 
-    def parse_tag(self, document, tag):
+    def parse_tag(self, document, tag, anc_tags, anc_attrs):
         for child in tag.contents:
             if isinstance(child, NavigableString):
-                for phrase in self.sentence_parser.parse(document, unicode(child)):
-                    print "NON-TABLE:" + unicode(child)
-                    yield phrase
-                # print unicode(child)
-            elif isinstance(child, Tag):
+                for parts in self.table_parser.corenlp_handler.parse(document, unicode(child)):
+                    parts['document_id'] = document.id
+                    parts['table_id'] = None
+                    parts['cell_id'] = None
+                    parts['document'] = document
+                    parts['table'] = None
+                    parts['cell'] = None
+                    parts['row_num'] = None
+                    parts['col_num'] = None
+                    parts['html_tag'] = tag.name
+                    parts['html_attrs'] = tag.attrs
+                    parts['html_anc_tags'] = anc_tags
+                    parts['html_anc_attrs'] = anc_attrs
+                    yield Phrase(**parts)
+            else: # isinstance(child, Tag) = True
                 if child.name == "table":
-                    print "TABLE!"
                     for phrase in self.table_parser.parse(document, unicode(child)):
                         yield phrase
                 else:
-                    for phrase in self.parse_tag(document, child):
+                    if anc_tags is None:
+                        import pdb; pdb.set_trace()
+                    anc_tags.append(tag.name)
+                    anc_attrs.extend(tag.attrs)
+                    for phrase in self.parse_tag(document, child, anc_tags, anc_attrs):
                         yield phrase
-            else:
-                import pdb; pdb.set_trace()
 
 
 class TableParser(object):
@@ -346,10 +357,10 @@ class TableParser(object):
                     parts['col_num'] = col_num
                     parts['html_tag'] = html_cell.name
                     parts['html_attrs'] = split_html_attrs(html_cell.attrs.items())
-                    parts['html_anc_tags'] = html_anc_tags
+                    parts['html_anc_tags'] = html_anc_tags 
                     parts['html_anc_attrs'] = html_anc_attrs
                     cell = Cell(**parts)
-                    html_cell['snorkel_id'] = cell.id   # add new attribute to the html
+                    # html_cell['snorkel_id'] = cell.id   # add new attribute to the html
                     yield cell
                     position += 1
                     col_num += 1
