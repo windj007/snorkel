@@ -153,7 +153,7 @@ class XMLDocParser(DocParser):
         return fpath.endswith('.xml')
 
 
-class SentenceParser(object):
+class CoreNLPHandler(object):
     def __init__(self, delim='', tok_whitespace=False):
         # http://stanfordnlp.github.io/CoreNLP/corenlp-server.html
         # Spawn a StanfordCoreNLPServer process that accepts parsing requests at an HTTP port.
@@ -191,7 +191,7 @@ class SentenceParser(object):
             except:
                 sys.stderr.write('Could not kill CoreNLP server. Might already got killt...\n')
 
-    def get_nlp_tags(self, text, document):
+    def parse(self, doc, text):
         if len(text.strip()) == 0:
             return
         if isinstance(text, unicode):
@@ -200,7 +200,7 @@ class SentenceParser(object):
         text = text.decode('utf-8')
         content = resp.content.strip()
         if content.startswith("Request is too long") or content.startswith("CoreNLP request timed out"):
-          raise ValueError("File {} too long. Max character count is 100K".format(document.name))
+          raise ValueError("File {} too long. Max character count is 100K".format(doc.name))
         blocks = json.loads(content, strict=False)['sentences']
         position = 0
         for block in blocks:
@@ -223,39 +223,36 @@ class SentenceParser(object):
                                 block['tokens'][-1]['characterOffsetEnd']]
             parts['xmltree'] = None
             parts['position'] = position
+            parts['document'] = doc
             position += 1
             yield parts
 
-    def parse(self, document, text):
+
+class SentenceParser(object):
+    def __init__(self, delim='', tok_whitespace=False):
+        self.corenlp_handler = CoreNLPHandler(delim=delim, tok_whitespace=tok_whitespace)
+
+    def parse(self, doc, text):
         """Parse a raw document as a string into a list of sentences"""
-        for parts in self.get_nlp_tags(text, document):
-            sent = Sentence(**parts)
-            sent.document = document
-            yield sent
+        for parts in self.corenlp_handler.parse(doc, text):
+            yield Sentence(**parts)
 
 
 class HTMLParser(DocParser):
     """Simple parsing of files into html documents"""
-    # TEMP
-    # def init(self):
-    #     self.doc_id = 0
-    # TEMP
-
     def parse_file(self, fp, file_name):
         with open(fp, 'r') as f:
             soup = BeautifulSoup(f, 'lxml')
             for text in soup.find_all('html'):
-                # id = self.doc_id
                 name = re.sub(r'\..*$', '', os.path.basename(fp))
                 attribs = None
                 yield Document(name=name, file=str(file_name), attribs=attribs), str(text)
-                # self.doc_id += 1
 
 
 class OmniParser(object):
     def __init__(self):
-        self.table_parser = TableParser()
         self.sentence_parser = SentenceParser()
+        self.table_parser = TableParser()
 
     def parse(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
@@ -281,11 +278,11 @@ class OmniParser(object):
                 import pdb; pdb.set_trace()
 
 
-class TableParser(SentenceParser):
+class TableParser(object):
     """Simple parsing of the tables in html documents into cells and phrases within cells"""
     def __init__(self, tok_whitespace=False):
         self.delim = "<NC>" # NC = New Cell
-        super(TableParser, self).__init__(delim=self.delim[1:-1], tok_whitespace=tok_whitespace)
+        self.corenlp_handler = CoreNLPHandler(delim=self.delim[1:-1], tok_whitespace=tok_whitespace)
 
     def parse(self, document, text, batch=False):
         # BROKEN: DO NOT USE BATCH MODE FOR NOW
@@ -300,7 +297,7 @@ class TableParser(SentenceParser):
                 char_idx = 0
                 cell_idx = 0
                 position = 0 # position of Phrase in Cell
-                for parts in self.get_nlp_tags(text_batch, document):
+                for parts in self.corenlp_handler.parse(document, text_batch):
                     while char_idx >= cell_start[cell_idx + 1]:
                         cell_idx += 1
                         position = 0
@@ -344,7 +341,7 @@ class TableParser(SentenceParser):
                     parts['document'] = table.document
                     parts['table'] = table
 
-                    parts['text'] = str(html_cell.get_text(strip=True))
+                    parts['text'] = unicode(html_cell.get_text(strip=True))
                     parts['row_num'] = row_num
                     parts['col_num'] = col_num
                     parts['html_tag'] = html_cell.name
@@ -358,16 +355,8 @@ class TableParser(SentenceParser):
                     col_num += 1
 
     def parse_cell(self, cell):
-        parts = self.inherit_cell_attrs(cell, defaultdict(list))
-        for i, sent in enumerate(super(TableParser, self).parse(cell.document, cell.text)):
-            parts['text'] = sent.text
-            parts['position'] = i
-            parts['words'] = sent.words
-            parts['lemmas'] = sent.lemmas
-            parts['poses'] = sent.poses
-            parts['char_offsets'] = sent.char_offsets
-            parts['dep_parents'] = sent.dep_parents
-            parts['dep_labels'] = sent.dep_labels
+        for i, parts in enumerate(self.corenlp_handler.parse(cell.document, cell.text)):
+            parts = self.inherit_cell_attrs(cell, parts)
             yield Phrase(**parts)
 
     def inherit_cell_attrs(self, cell, parts):
