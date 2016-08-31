@@ -263,6 +263,62 @@ class RangeMatcher(NumberMatcher):
         return super(RangeMatcher,self)._f(cand) and (self.low <= self.num) and (self.num <= self.high)
 
 
+class CellDictNameMatcher(NgramMatcher):
+    """Match cells based on their aligned ngrams
+
+    Cell is matched if any of its aligned row/col cells contain spans 
+    matched by a dictionary. Axis is either 'row', 'col', or None (for both)
+
+    This is meant to extract all cells with a certain title (e.g. "phenotype").
+    """
+    def init(self):
+        self.ignore_case = self.opts.get('ignore_case', True)
+        self.attrib      = self.opts.get('attrib', WORDS)
+        self.axis        = self.opts.get('axis', None)
+        self.n_max        = self.opts.get('n_max', 3)
+        if self.axis not in ('row', 'col', None):
+            raise Exception("Invalid axis argument")
+
+        try:
+            self.d = frozenset(w.lower() if self.ignore_case else w for w in self.opts['d'])
+        except KeyError:
+            raise Exception("Please supply a dictionary (list of phrases) d as d=d.")
+
+        # Optionally use a stemmer, preprocess the dictionary
+        # Note that user can provide *an object having a stem() method*
+        self.stemmer = self.opts.get('stemmer', None)
+        if self.stemmer is not None:
+            if self.stemmer == 'porter':
+                self.stemmer = PorterStemmer()
+            self.d = frozenset(self._stem(w) for w in list(self.d))
+
+    def _stem(self, w):
+        """Apply stemmer, handling encoding errors"""
+        try:
+            return self.stemmer.stem(w)
+        except UnicodeDecodeError:
+            return w
+
+    def _strip_punct(self, w):
+        return w.translate(self.punc_tbl)
+        # return w.translate(string.maketrans("",""), string.punctuation)
+
+    def _f_span(self, p):
+        p = p.lower() if self.ignore_case else p
+        p = self._stem(p) if self.stemmer is not None else p
+        return True if p in self.d else False
+
+    def _f(self, c):
+        c_span = c.promote()
+        row_matches, col_matches = True, True
+        if self.axis == 'row': spans = c_span.row_ngrams(attr=self.attrib, n_max=self.n_max)
+        if self.axis == 'col': spans = c_span.col_ngrams(attr=self.attrib, n_max=self.n_max)
+        if self.axis is None:  spans = c_span.aligned_ngrams(attr=self.attrib, n_max=self.n_max)
+
+        return True if any(self._f_span(span) for span in spans) else False
+
+# FIXME: for some reason, this is very slow on tables
+# perhaps switching back batch mode will help?
 class CellNameMatcher(NgramMatcher):
     """Match cells based on their aligned ngrams
 
