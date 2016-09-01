@@ -17,7 +17,7 @@ import lxml.etree as et
 from itertools import chain
 from utils import corenlp_cleaner, sort_X_on_Y, split_html_attrs
 import sys
-
+import copy
 
 
 class CorpusParser:
@@ -298,9 +298,12 @@ class OmniParser(object):
                     parts['html_anc_tags'] = anc_tags 
                     parts['html_anc_attrs'] = anc_attrs
                     cell = Cell(**parts)
-                anc_tags.append(tag.name)
-                anc_attrs.extend(tag.attrs)
-                for phrase in self.parse_tag(child, document, table, cell, anc_tags, anc_attrs):
+                # FIXME: making so many copies is hacky and wasteful
+                temp_anc_tags = copy.deepcopy(anc_tags)
+                temp_anc_tags.append(child.name)
+                temp_anc_attrs = copy.deepcopy(anc_attrs)
+                temp_anc_attrs.extend(child.attrs)
+                for phrase in self.parse_tag(child, document, table, cell, temp_anc_tags, temp_anc_attrs):
                     yield phrase
 
 class TableParser(object):

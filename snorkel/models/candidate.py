@@ -188,19 +188,36 @@ class Span(Candidate, TemporarySpan):
             start_idx = max(self.get_word_start()-d, 0)
             return getattr(self.context, attr)[start_idx:self.get_word_start()]
 
-    def post_ngrams(self, attr='words'):
-        return self.post_window(attr=attr)
+    # NOTE: pre_ngrams and post_ngrams may duplicate behavior in pre_/post_window
+    def pre_ngrams(self, attr='words', n_max=3, case_sensitive=False):
+        pre_cand = getattr(self.context,attr)[:self.get_word_start()]
+        for ngram in slice_into_ngrams(pre_cand, n_max=n_max):
+            yield ngram if case_sensitive else ngram.lower()
+    
+    def post_ngrams(self, attr='words', n_max=3, case_sensitive=False):
+        pre_cand = getattr(self.context,attr)[self.get_word_end()+1:]
+        for ngram in slice_into_ngrams(pre_cand, n_max=n_max):
+            yield ngram if case_sensitive else ngram.lower()
 
-    def pre_ngrams(self, attr='words'):
-        return self.pre_window(attr=attr)
+    def phrase_ngrams(self, attr='words', n_max=3, case_sensitive=False):
+        # NOTE: n_max is currently unused
+        for ngram in self.pre_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive):
+            yield ngram
+        for ngram in self.post_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive):
+            yield ngram
 
-    def cell_ngrams(self, attr='words'):
-        return self.post_ngrams(attr=attr) + self.pre_ngrams(attr=attr)
+    def cell_ngrams(self, attr='words', n_max=3, case_sensitive=False):
+        if self.context.cell is None: return
+        for phrase in self.context.cell.phrases:
+            for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max):
+                yield ngram if case_sensitive else ngram.lower()
 
     def neighborhood_ngrams(self, attr='words', n_max=3, dist=1, case_sensitive=False):
         # TODO: optimize with SQL query
+        if self.context.cell is None: return
         f = lambda x: 0 < x and x <= dist
         phrases = [phrase for phrase in self.context.table.phrases if
+            phrase.row_num is not None and phrase.col_num is not None and
             f(abs(phrase.row_num - self.context.row_num) + abs(phrase.col_num - self.context.col_num))]
         for phrase in phrases:
             for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max):
@@ -208,7 +225,9 @@ class Span(Candidate, TemporarySpan):
 
     def neighbor_ngrams(self, attr='words', n_max=3, dist=1, case_sensitive=False):
         # TODO: optimize with SQL query
+        if self.context.cell is None: return
         for phrase in self.context.table.phrases:
+            if phrase.row_num is None or phrase.col_num is None: continue
             side = ''
             row_diff = phrase.row_num - self.context.row_num
             col_diff = phrase.col_num - self.context.col_num
@@ -226,10 +245,12 @@ class Span(Candidate, TemporarySpan):
                 for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max):
                     yield (ngram,side) if case_sensitive else (ngram.lower(), side)
 
-
     def aligned_ngrams(self, attr='words', n_max=3, case_sensitive=False):
-        return (self.row_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive)
-              + self.col_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive))
+        if self.context.cell is None: return
+        for ngram in self.row_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive):
+            yield ngram
+        for ngram in self.col_ngrams(attr=attr, n_max=n_max, case_sensitive=case_sensitive):
+            yield ngram
 
     def head_ngrams(self, axis, attr='words', n_max=3, case_sensitive=False, induced=False):
         head_cell = self.head_cell(axis, induced=induced)
@@ -239,18 +260,24 @@ class Span(Candidate, TemporarySpan):
         return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
 
     def row_ngrams(self, attr='words', n_max=3, case_sensitive=False):
+        if self.context.cell is None: return
         cells = self.row_cells()
         ngrams = chain.from_iterable(
             self._get_phrase_ngrams(phrase, attr=attr, n_max=n_max) 
             for cell in cells for phrase in cell.phrases)
-        return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
+        if ngrams is None: return
+        for ngram in ngrams:
+            yield ngram if case_sensitive else ngram.lower()
 
     def col_ngrams(self, attr='words', n_max=3, case_sensitive=False):
+        if self.context.cell is None: return
         cells = self.col_cells()
         ngrams = chain.from_iterable(
             self._get_phrase_ngrams(phrase, attr=attr, n_max=n_max) 
             for cell in cells for phrase in cell.phrases)
-        return [ngram.lower() for ngram in ngrams] if not case_sensitive else ngrams
+        if ngrams is None: return
+        for ngram in ngrams:
+            yield ngram if case_sensitive else ngram.lower()
 
     def head_cell(self, axis, induced=False):
         if axis not in ('row', 'col'): 
