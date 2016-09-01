@@ -43,11 +43,13 @@ def slice_into_ngrams(tokens, n_max=3, delim='_'):
 
 def expand_implicit_text(phrase):
     """
-    Given a string, returns a generator of strings that are potentially implied by
+    Given a string, generates strings that are potentially implied by
     the original text. Two main operations are performed:
         1. Expanding ranges (X to Y, X ~ Y, X -- Y)
         2. Expanding suffixes (123X/Y/Z, 123X, Y, Z)
     If no implicit terms are found, yields just the original string.
+    To get the correct output from complex strings, this function should be fed
+    many Ngrams from a particular phrase.
     """
     DEBUG = False # Set to True to see intermediate values printed out.
 
