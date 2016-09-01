@@ -105,3 +105,13 @@ def collect_hardware_relation_gold(filename, attribute, candidates):
         gold_candidates.append(c)
         gold_labels.append(label)
     return (gold_candidates, gold_labels)
+
+def collect_hardware_doc_part_pairs(filename):
+    with open(filename, 'r') as csvfile:
+        gold_reader = csv.reader(csvfile)
+        gold = []
+        for row in gold_reader:
+            (doc, part, val, attr) = row
+            gold.append((doc, part))
+        gold = set(gold)
+        return gold

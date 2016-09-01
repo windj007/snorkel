@@ -284,6 +284,8 @@ class OmniParser(object):
                     self.row_num += 1
                     self.col_num = -1
                 elif child.name in ["td","th"]:
+                    # TODO: consider using bs4's 'unwrap()' method to remove formatting
+                    #   html tags from the contents of cells so entities are not broken up
                     self.cell_idx += 1
                     self.col_num += 1
                     parts = defaultdict(list)
