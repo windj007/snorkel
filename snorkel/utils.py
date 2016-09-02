@@ -65,7 +65,7 @@ def expand_implicit_text(phrase):
 
     ### Regex Patterns compile only once per function call.
     # This range pattern will find text that "looks like" a range.
-    range_pattern = re.compile(ur'^(?P<start>[\w\/]+)(?:\s*(\.{3,}|\~|\-+|to)\s*)(?P<end>[\w\/]+)$')
+    range_pattern = re.compile(ur'^(?P<start>[\w\/]+)(?:\s*(\.{3,}|\~|\-+|to|thru|through)\s*)(?P<end>[\w\/]+)$', re.IGNORECASE)
     suffix_pattern = re.compile(ur'(?P<spacer>(?:,|\/)\s*)(?P<suffix>[\w\-]+)')
     base_pattern = re.compile(ur'(?P<base>[\w\-]+)(?P<spacer>(?:,|\/)\s*)?(?P<suffix>[\w\-]+)?')
 

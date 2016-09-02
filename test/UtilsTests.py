@@ -29,6 +29,16 @@ class TestImplicitExpansion(unittest.TestCase):
         lst = list(expand_implicit_text(phrase))
         self.assertEqual(len(lst), 15)
 
+        # Test 'thru' range + suffix combination
+        phrase = "BC546A/B/C THRU BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'through' range + suffix combination
+        phrase = "BC546A/B/C through BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
         # Test single letter range expansion
         phrase = "BC546A~BC546E"
         lst = list(expand_implicit_text(phrase))
