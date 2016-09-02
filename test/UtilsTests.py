@@ -29,6 +29,16 @@ class TestImplicitExpansion(unittest.TestCase):
         lst = list(expand_implicit_text(phrase))
         self.assertEqual(len(lst), 15)
 
+        # Test 'thru' range + suffix combination
+        phrase = "BC546A/B/C THRU BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'through' range + suffix combination
+        phrase = "BC546A/B/C through BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
         # Test single letter range expansion
         phrase = "BC546A~BC546E"
         lst = list(expand_implicit_text(phrase))
@@ -78,6 +88,28 @@ class TestImplicitExpansion(unittest.TestCase):
         self.assertTrue("BC546-16" in lst)
         self.assertTrue("BC546-25" in lst)
         self.assertTrue("BC546-40" in lst)
+
+    def test_unicode_range_symbols(self):
+        # Test 'figure dash' range + suffix combination
+        phrase = u"BC546A/B/C\u2012BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'minus sign' range + suffix combination
+        phrase = u"BC546A/B/C \u2212 BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'en dash' range + suffix combination
+        phrase = u"BC546A/B/C\u2013\u2013BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'em dash' range + suffix combination
+        phrase = u"BC546A/B/C\u2012BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
 
     @unittest.skip("No evidence of this happening in the wild, but documenting it as a potential case.")
     def test_complicated_dash_pattern(self):

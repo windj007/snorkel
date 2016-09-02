@@ -43,11 +43,13 @@ def slice_into_ngrams(tokens, n_max=3, delim='_'):
 
 def expand_implicit_text(text):
     """
-    Given a string, returns a generator of strings that are potentially implied by
+    Given a string, generates strings that are potentially implied by
     the original text. Two main operations are performed:
         1. Expanding ranges (X to Y; X ~ Y; X -- Y)
         2. Expanding suffixes (123X/Y/Z; 123X, Y, Z)
     If no implicit terms are found, yields just the original string.
+    To get the correct output from complex strings, this function should be fed
+    many Ngrams from a particular phrase.
     """
     DEBUG = False # Set to True to see intermediate values printed out.
 
@@ -63,7 +65,7 @@ def expand_implicit_text(text):
 
     ### Regex Patterns compile only once per function call.
     # This range pattern will find text that "looks like" a range.
-    range_pattern = re.compile(ur'^(?P<start>[\w\/]+)(?:\s*(\.{3,}|\~|\-+|to)\s*)(?P<end>[\w\/]+)$')
+    range_pattern = re.compile(ur'^(?P<start>[\w\/]+)(?:\s*(\.{3,}|\~|\-+|to|thru|through|\u2013+|\u2014+|\u2012+|\u2212+)\s*)(?P<end>[\w\/]+)$', re.IGNORECASE | re.UNICODE)
     suffix_pattern = re.compile(ur'(?P<spacer>(?:,|\/)\s*)(?P<suffix>[\w\-]+)')
     base_pattern = re.compile(ur'(?P<base>[\w\-]+)(?P<spacer>(?:,|\/)\s*)?(?P<suffix>[\w\-]+)?')
 
