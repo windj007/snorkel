@@ -144,6 +144,76 @@ class Cell(Context):
     def __repr__(self):
         return "Cell" + str((self.document.name, self.table.position, self.position, self.text))
 
+    def head_cell(self, axis, induced=False):
+        """Return first aligned cell along given axis
+
+        If we are already at the head cell for this axis, return None
+
+        The first aligned cell along an axis is the one whose other axis is 0
+        """
+        if axis not in ('row', 'col'): raise ValueError("Axis must equal 'row' or 'col'")
+
+        other_axis = 'col' if axis == 'row' else 'row'
+        other_axis_name = other_axis + '_num'
+        if getattr(self, other_axis_name) == 0: return None
+        cells = [cell for cell in self.aligned_cells(axis=axis) 
+                 if getattr(cell, other_axis_name) == 0]
+        assert len(cells) == 1
+
+        head_cell = cells[0]
+        
+        if induced and not head_cell.text.isspace():
+            return head_cell.first_aligned_nonempty_cell(other_axis)
+
+        return head_cell
+
+    def aligned_cells(self, axis, induced=False):
+        """Return list of aligned cells along given axis"""
+
+        if axis not in ('row', 'col'): raise ValueError("Axis must equal 'row' or 'col'")
+
+        axis_name = axis + '_num'
+        cells = [ cell for cell in self.table.cells
+                  if getattr(cell,axis_name) == getattr(self,axis_name)
+                  and cell != self ]
+
+        if induced:
+            other_axis = 'col' if axis == 'row' else 'row'
+            def induced_or_real(c):
+                return c if c.text and not c.text.isspace() else \
+                       c.first_aligned_nonempty_cell(other_axis)
+            cells = [induced_or_real(cell) for cell in cells
+                     if induced_or_real(cell) is not None]
+        return cells
+
+    def first_aligned_nonempty_cell(self, axis, dir='up'):
+        """Return first non-empty cell along axis in given direction
+
+        Currently, 'dir' must be 'up'
+
+        If no such cell exists, None is returned. If this is the first cell,
+        None is returned.
+
+        Axis is 'row' or 'col'. Dir is 'up' (decreasing) or 'down' (increasing).
+        """
+        if dir != 'up': raise NotImplementedError("Please use dir='up' for now")
+        if axis not in ('row', 'col'): raise ValueError("Axis must equal 'row' or 'col'")
+        
+        axis_name = axis + '_num'
+        other_axis = 'col' if axis == 'row' else 'row'
+        other_axis_name = other_axis + '_num'
+        # get cells aligned to self that appear before self and that aren't empty
+        aligned_cells = [cell for cell in self.aligned_cells(axis)
+                         if getattr(cell,other_axis_name) < getattr(self,other_axis_name)
+                         and cell.text and not cell.text.isspace()]
+        # pick the last cell among the ones identified above
+        aligned_cells = sorted(aligned_cells, key=lambda x: getattr(x,other_axis_name), reverse=True)
+        if aligned_cells:
+            out_cell = aligned_cells[0]
+        else:
+            out_cell = None
+
+        return out_cell
 
 class Phrase(Context):
     __tablename__ = 'phrase'
