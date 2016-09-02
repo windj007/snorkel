@@ -176,15 +176,22 @@ class AlignedTableRelationExtractor(CandidateExtractor):
         'col': output candidates aligned over columns
          None: output candidates aligned over either rows or columns
     """
-    def __init__(self, extractor1, extractor2, axis=None, join_key='context_id'):
+    def __init__(self, extractor1, extractor2, axis=None, induced=False, join_key='context_id'):
         super(AlignedTableRelationExtractor, self).__init__(parallelism=False, join_key=join_key)
         self.axis = axis
         self.e1 = extractor1
         self.e2 = extractor2
+        self.induced = induced
         if axis not in ('row', 'col', None):
             raise Exception('Invalid axis type')
 
     def _extract(self, contexts):
+        if self.induced:
+            return self._extract_induced(contexts)
+        else:
+            return self._extract_normal(contexts)
+
+    def _extract_normal(self, contexts):
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 for span1 in self.e2._extract([context]):
@@ -195,8 +202,19 @@ class AlignedTableRelationExtractor(CandidateExtractor):
                     if self.axis is None:
                         if span0.context.cell.col_num != span1.context.cell.col_num \
                         and span0.context.cell.row_num != span1.context.cell.row_num: continue
-                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))                    
+                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
+    def _extract_induced(self, contexts):
+        for context in contexts:
+            for span0 in self.e1._extract([context]):
+                if self.axis in ('row', 'col'):
+                    aligned_cells = span0.context.cell.aligned_cells(self.axis, induced=True)
+                if self.axis is None:
+                    aligned_cells = span0.context.cell.aligned_cells('row', induced=True) \
+                                  + span0.context.cell.aligned_cells('col', induced=True)
+                for span1 in self.e2._extract([context]):
+                    if span1.context.cell in aligned_cells:
+                        yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
 class Ngrams(CandidateSpace):
     """
