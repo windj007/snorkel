@@ -1,9 +1,11 @@
-from .models import CandidateSet, TemporarySpan, SpanPair
+from .models import CandidateSet, TemporarySpan, SpanPair, Phrase
 from itertools import chain
 from multiprocessing import Process, Queue, JoinableQueue
 from Queue import Empty
 from utils import get_as_dict
 import re
+from utils import expand_implicit_text
+from parser import CoreNLPHandler
 
 QUEUE_COLLECT_TIMEOUT = 5
 
@@ -217,17 +219,63 @@ class Ngrams(CandidateSpace):
                 char_start = context.char_offsets[i]
                 cl = context.char_offsets[i+l-1] - context.char_offsets[i] + len(context.words[i+l-1])
                 char_end = context.char_offsets[i] + cl - 1
+                # if u"BC856" in context.words:
+                #     import pdb; pdb.set_trace()
                 yield TemporarySpan(char_start=char_start, char_end=char_end, context=context)
 
                 # Check for split
                 # NOTE: For simplicity, we only split single tokens right now!
-                if l == 1 and self.split_rgx is not None:
-                    m = re.search(self.split_rgx,
-                        context.text[char_start-context.char_offsets[0]:char_end-context.char_offsets[0]+1])
-                    if m is not None and l < self.n_max:
-                        if char_start > char_start + m.start(1) - 1 or char_start + m.end(1) > char_end:
-                            yield TemporarySpan(char_start=char_start, char_end=char_start + m.start(1) - 1, context=context)
-                            yield TemporarySpan(char_start=char_start + m.end(1), char_end=char_end, context=context)
+                # if l == 1 and self.split_rgx is not None:
+                #     m = re.search(self.split_rgx,
+                #         context.text[char_start-context.char_offsets[0]:char_end-context.char_offsets[0]+1])
+                #     if m is not None and l < self.n_max:
+                #         if char_start > char_start + m.start(1) - 1 or char_start + m.end(1) > char_end:
+                #             yield TemporarySpan(char_start=char_start, char_end=char_start + m.start(1) - 1, context=context)
+                #             yield TemporarySpan(char_start=char_start + m.end(1), char_end=char_end, context=context)
+
+class NgramsWithRanges(CandidateSpace):
+    """
+    Defines the space of candidates as all n-grams (n <= n_max) in a Phrase _x_,
+    indexing by **character offset**. It also checks for n-grams that look like
+    part number ranges and replaces them with the expanded contents.
+    """
+    def __init__(self, n_max=3):
+        CandidateSpace.__init__(self)
+        self.corenlp_handler = CoreNLPHandler()
+        self.n_max = n_max
+
+    def apply(self, context):
+        # Loop over all n-grams in **reverse** order (to facilitate longest-match semantics)
+        L = len(context.char_offsets)
+        for l in range(1, self.n_max+1)[::-1]: # l = length of n-gram
+            for i in range(L-l+1): # i = starting index
+                # NOTE that we derive char_len without using sep
+                char_start = context.char_offsets[i]
+                cl = context.char_offsets[i+l-1] - context.char_offsets[i] + len(context.words[i+l-1])
+                char_end = context.char_offsets[i] + cl - 1
+                yield TemporarySpan(char_start=char_start, char_end=char_end, context=context)
+
+                # look for ranges
+                word_start = i
+                word_end = i + l - 1
+                text = context.words[word_start:word_end+1]
+                expanded_texts = list(expand_implicit_text(u" ".join(text)))
+                if len(expanded_texts) > 1:
+                    expanded_text = " ".join(expanded_texts)
+                    for parts in self.corenlp_handler.parse(context.document, expanded_text):
+                        parts['document'] = context.document
+                        parts['table'] = context.table
+                        parts['cell'] = context.cell
+                        if context.cell is not None:
+                            parts['row_num'] = context.cell.row_num
+                            parts['col_num'] = context.cell.col_num
+                        parts['html_tag'] = context.html_tag
+                        parts['html_attrs'] = context.html_attrs
+                        parts['html_anc_tags'] = context.html_anc_tags
+                        parts['html_anc_attrs'] = context.html_anc_attrs
+                        p = Phrase(**parts)
+                        yield TemporarySpan(char_start=0, char_end=(len(expanded_text)-1), context=p)
+                
 
 class TableNgrams(Ngrams):
     """

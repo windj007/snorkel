@@ -17,6 +17,7 @@ import lxml.etree as et
 from itertools import chain
 from utils import corenlp_cleaner, sort_X_on_Y, split_html_attrs
 import sys
+import warnings
 import copy
 
 
@@ -200,7 +201,9 @@ class CoreNLPHandler(object):
         text = text.decode('utf-8')
         content = resp.content.strip()
         if content.startswith("Request is too long") or content.startswith("CoreNLP request timed out"):
-          raise ValueError("File {} too long. Max character count is 100K".format(doc.name))
+            warnings.warn("Submission from file {} too long. Max character count is 100K. Submission was skipped.".format(doc.name), RuntimeWarning)
+            return
+            # raise ValueError("File {} too long. Max character count is 100K".format(doc.name))
         blocks = json.loads(content, strict=False)['sentences']
         position = 0
         for block in blocks:
@@ -262,6 +265,7 @@ class OmniParser(object):
     def parse_tag(self, tag, document, table=None, cell=None, anc_tags=[], anc_attrs=[]):
         for child in tag.contents:
             if isinstance(child, NavigableString):
+                # text = u' '.join(list(expand_implicit_text(unicode(child))))
                 for parts in self.table_parser.corenlp_handler.parse(document, unicode(child)):
                     parts['document'] = document
                     parts['table'] = table

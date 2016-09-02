@@ -41,12 +41,12 @@ def slice_into_ngrams(tokens, n_max=3, delim='_'):
         for n in range(min(n_max, N - root)):
             yield delim.join(tokens[root:root+n+1])
 
-def expand_implicit_text(phrase):
+def expand_implicit_text(text):
     """
     Given a string, returns a generator of strings that are potentially implied by
     the original text. Two main operations are performed:
-        1. Expanding ranges (X to Y, X ~ Y, X -- Y)
-        2. Expanding suffixes (123X/Y/Z, 123X, Y, Z)
+        1. Expanding ranges (X to Y; X ~ Y; X -- Y)
+        2. Expanding suffixes (123X/Y/Z; 123X, Y, Z)
     If no implicit terms are found, yields just the original string.
     """
     DEBUG = False # Set to True to see intermediate values printed out.
@@ -67,12 +67,12 @@ def expand_implicit_text(phrase):
     suffix_pattern = re.compile(ur'(?P<spacer>(?:,|\/)\s*)(?P<suffix>[\w\-]+)')
     base_pattern = re.compile(ur'(?P<base>[\w\-]+)(?P<spacer>(?:,|\/)\s*)?(?P<suffix>[\w\-]+)?')
 
-    if DEBUG: print "[debug] Phrase: " + phrase
-    inferred_phrases = set()
+    if DEBUG: print "[debug] Text: " + text
+    inferred_texts = set()
     final_set = set()
 
     ### Step 1: Search and expand ranges
-    m = re.search(range_pattern, phrase)
+    m = re.search(range_pattern, text)
     if m:
         start = m.group("start")
         end = m.group("end")
@@ -105,9 +105,9 @@ def expand_implicit_text(phrase):
             # generate a list of the numbers plugged in
             number_range = range(atoi(start_diff), atoi(end_diff) + 1)
             for number in number_range:
-                new_phrase = start.replace(start_diff,str(number))
+                new_text = start.replace(start_diff,str(number))
                 # Produce the strings with the enumerated ranges
-                inferred_phrases.add(new_phrase)
+                inferred_texts.add(new_text)
 
         # Second, check for single-letter enumeration
         if len(start_diff) == 1 and len(end_diff) == 1:
@@ -122,30 +122,30 @@ def expand_implicit_text(phrase):
                 if DEBUG: print "[debug]   Enumerate %s to %s" % (start_diff, end_diff)
                 letter_range = char_range(start_diff, end_diff)
                 for letter in letter_range:
-                    new_phrase = start.replace(start_diff,letter)
+                    new_text = start.replace(start_diff,letter)
                     # Produce the strings with the enumerated ranges
-                    inferred_phrases.add(new_phrase)
-    else: inferred_phrases.add(phrase)
-    if DEBUG: print "[debug]   Inferred Phrases: \n  " + str(sorted(inferred_phrases))
+                    inferred_texts.add(new_text)
+    else: inferred_texts.add(text)
+    if DEBUG: print "[debug]   Inferred Text: \n  " + str(sorted(inferred_texts))
 
     ### Step 2: Expand suffixes for each of the inferred phrases
     # NOTE: this only does the simple case of replacing same-length suffixes.
     # we do not handle cases like "BC546A/B/XYZ/QR"
-    for phrase in inferred_phrases:
-        first_match = re.search(base_pattern,phrase)
+    for text in inferred_texts:
+        first_match = re.search(base_pattern,text)
         if first_match:
-            base = re.search(base_pattern,phrase).group("base");
+            base = re.search(base_pattern,text).group("base");
             final_set.add(base) # add the base (multiple times, but set handles that)
             if (first_match.group("suffix")):
                 all_suffix_lengths = set()
                 # This is a bit inefficient but this first pass just is here
                 # to make sure that the suffixes are the same length
-                for m in re.finditer(suffix_pattern, phrase):
+                for m in re.finditer(suffix_pattern, text):
                     suffix = m.group("suffix")
                     suffix_len = len(suffix)
                     all_suffix_lengths.add(suffix_len)
                 if len(all_suffix_lengths) == 1:
-                    for m in re.finditer(suffix_pattern, phrase):
+                    for m in re.finditer(suffix_pattern, text):
                         spacer = m.group("spacer")
                         suffix = m.group("suffix")
                         suffix_len = len(suffix)
@@ -154,8 +154,8 @@ def expand_implicit_text(phrase):
     if DEBUG: print "[debug]   Final Set: " + str(sorted(final_set))
 
     # Yield only the unique values
-    for inferred_phrase in final_set:
-        yield inferred_phrase
+    for inferred_texts in final_set:
+        yield inferred_texts
 
     # NOTE: We make a few assumptions (e.g. suffixes must be same length), but
     # one important unstated assumption is that if there is a single suffix,
