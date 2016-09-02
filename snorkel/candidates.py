@@ -216,6 +216,17 @@ class AlignedTableRelationExtractor(CandidateExtractor):
                     if span1.context.cell in aligned_cells:
                         yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
+class UnionExtractor(CandidateExtractor):
+    """Chain multiple extractors"""
+
+    def __init__(self, extractor_list, parallelism=False, join_key='context_id'):
+        super(UnionExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
+        self.extractor_list = extractor_list
+
+    def _extract(self, contexts):
+        generators = [extractor.extract(contexts) for extractor in self.extractor_list]
+        return chain(*generators)
+
 class Ngrams(CandidateSpace):
     """
     Defines the space of candidates as all n-grams (n <= n_max) in a Sentence _x_,
