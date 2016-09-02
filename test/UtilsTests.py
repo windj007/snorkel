@@ -89,6 +89,28 @@ class TestImplicitExpansion(unittest.TestCase):
         self.assertTrue("BC546-25" in lst)
         self.assertTrue("BC546-40" in lst)
 
+    def test_unicode_range_symbols(self):
+        # Test 'figure dash' range + suffix combination
+        phrase = u"BC546A/B/C\u2012BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'minus sign' range + suffix combination
+        phrase = u"BC546A/B/C \u2212 BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'en dash' range + suffix combination
+        phrase = u"BC546A/B/C\u2013\u2013BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+        # Test 'em dash' range + suffix combination
+        phrase = u"BC546A/B/C\u2012BC550A/B/C"
+        lst = list(expand_implicit_text(phrase))
+        self.assertEqual(len(lst), 15)
+
+
     @unittest.skip("No evidence of this happening in the wild, but documenting it as a potential case.")
     def test_complicated_dash_pattern(self):
         # NOTE: not really sure what to think about something like this. I
