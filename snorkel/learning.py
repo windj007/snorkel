@@ -87,9 +87,10 @@ class NoiseAwareModel(object):
     def marginals(self, X):
         raise NotImplementedError()
 
-    def predict(self, X):
+    def predict(self, X, thresh=0.5):
         """Return numpy array of elements in {-1,0,1} based on predicted marginal probabilities."""
-        return np.array([1 if p > 0.5 else -1 if p < 0.5 else 0 for p in self.marginals(X)])
+        print "Threshold = {}".format(thresh)
+        return np.array([1 if p > thresh else -1 if p < thresh else 0 for p in self.marginals(X)])
 
 
 class LogReg(NoiseAwareModel):

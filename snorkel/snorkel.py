@@ -123,7 +123,8 @@ class Learner(object):
         # Train model
         self.model.train(self.X_train, w0=w0, **model_hyperparams)
 
-    def test(self, test_candidates, gold_labels, display=True, return_vals=False):
+    def test(self, test_candidates, gold_labels, display=True, 
+             return_vals=False, thresh=0.5):
         """
         Apply the LFs and featurize the test candidates, using the same transformation as in training set;
         then test against gold labels using trained model.
@@ -136,7 +137,8 @@ class Learner(object):
             self.X_test          = self._set_model_X(L_test, F_test)
         if display:
             calibration_plots(self.model.marginals(self.X_train), self.model.marginals(self.X_test), gold_labels)
-        return test_scores(self.model.predict(self.X_test), gold_labels, return_vals=return_vals, verbose=display)
+        return test_scores(self.model.predict(self.X_test,thresh=thresh), gold_labels, 
+                           return_vals=return_vals, verbose=display)
 
 
     def lf_weights(self):
@@ -197,12 +199,13 @@ class LSTMLearner(Learner):
         self.w = self.model.train(self.training_set.training_candidates, training_marginals=training_marginals, \
                                   **model_hyperparams)
 
-    def test(self, test_candidates, gold_labels, display=True, return_vals=False):
+    def test(self, test_candidates, gold_labels, display=True, return_vals=False,
+             thresh=0.5):
         # Cache transformed test set
         if test_candidates != self.test_candidates or any(gold_labels != self.gold_labels):
             self.test_candidates = test_candidates
             self.gold_labels     = gold_labels
-        return test_scores(self.model.predict(self.test_candidates), gold_labels, return_vals=return_vals, verbose=display)
+        return test_scores(self.model.predict(self.test_candidates,thresh=thresh), gold_labels, return_vals=return_vals, verbose=display)
 
     def predictions(self):
         return self.model.predict(self.test_candidates)
