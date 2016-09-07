@@ -1,10 +1,11 @@
 # Base Python
 from collections import OrderedDict
+import codecs
+import os.path
+import re
 
 # Scientific modules
 import numpy as np
-
-import snorkel
 
 # ddlite LSTM
 import theano
@@ -28,6 +29,9 @@ class LSTMModel(object):
     self.lstm_Y = None
     self.word_dict = None
     self.marginals = None
+    self.load_emb = None
+    self.emb_path = None
+    self.load_word_dict = None
 
   def ortho_weight(self):
     u, s, v = np.linalg.svd(np.random.randn(self.lstm_settings['dim'], self.lstm_settings['dim']))
@@ -38,6 +42,71 @@ class LSTMModel(object):
     # embedding
     randn = np.random.rand(self.lstm_settings['word_size'], self.lstm_settings['dim'])
     params['Wemb'] = (0.01 * randn).astype(config.floatX)
+    if self.load_emb and os.path.isfile(self.emb_path):
+        c_found, c_lower, c_digits = 0.0,0.0,0.0
+        
+        # load embedding vocabulary
+        emb_vocab = {}
+        for i,line in enumerate(codecs.open(self.emb_path.replace("emb.txt","types.txt"), 'r', 'utf-8')):
+            emb_vocab[line.strip()] = i
+        
+        # build embedding term map
+        Wemb = {}
+        for term in self.word_dict:
+            if term in emb_vocab:
+                Wemb[emb_vocab[term]] = self.word_dict[term]
+                c_found=c_found+1
+            elif term.lower() in emb_vocab:
+                Wemb[emb_vocab[term.lower()]] = self.word_dict[term]
+                c_lower=c_lower+1
+            elif re.sub('\d', '0', term.lower()) in emb_vocab:
+                nt = re.sub('\d', '0', term.lower())
+                Wemb[emb_vocab[nt]] = self.word_dict[term]
+                c_digits=c_digits+1
+                
+        # initalize embeddings
+        repl = 0
+        for i,line in enumerate(codecs.open(self.emb_path, 'r', 'utf-8')):
+            line = line.rstrip().split()
+            if len(line) != self.dim + 1:
+                continue
+            if i in Wemb:
+                params['Wemb'][Wemb[i]] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
+                repl += 1
+        
+        '''
+        # initalize embeddings
+        for i,line in enumerate(codecs.open(self.emb_path, 'r', 'utf-8')):
+            line = line.rstrip().split()
+            if len(line) != self.dim + 1:
+                continue
+            
+            term = line[0].strip()
+            
+            if term in self.word_dict:
+                params['Wemb'][self.word_dict[term]] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
+                c_found=c_found+1
+                
+            elif term.lower() in self.word_dict: 
+                params['Wemb'][self.word_dict[term.lower()]] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
+                c_lower=c_lower+1
+            
+            elif re.sub('\d', '0', term.lower()) in self.word_dict:
+                nt = re.sub('\d', '0', term.lower())
+                params['Wemb'][self.word_dict[nt]] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
+                c_digits=c_digits+1
+        '''
+        #print "replaced", c_found, "/", len(self.word_dict)
+        print c_found + c_lower + c_digits, len(self.word_dict), repl
+        print 'Loaded %i pretrained embeddings.' % i
+        print ('%i / %i (%.4f%%) words have been initialized with '
+                       'pretrained embeddings.') % (c_found + c_lower + c_digits, len(self.word_dict),
+                            100. * (c_found + c_lower + c_digits) / len(self.word_dict)
+                      )
+        print ('%i found directly, %i after lowercasing, '
+                       '%i after lowercasing + zero.') % (
+                          c_found, c_lower, c_digits
+                      )
     # lstm
     params['lstm_W'] = np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], axis = 1)
     params['lstm_U'] = np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], axis = 1)
@@ -356,10 +425,14 @@ class LSTMModel(object):
     self.epoch = kwargs.get('n_iter', 300)
     self.maxlen = kwargs.get('maxlen', 100)
     self.dropout = kwargs.get('dropout', True)
-    self.verbose=kwargs.get('verbose', True)
-
+    self.verbose = kwargs.get('verbose', True)
+    self.load_emb = kwargs.get('load_emb', False)
+    self.emb_path = kwargs.get('emb_path', None)
+    self.load_word_dict = kwargs.get('load_word_dict', None)
     self.get_word_dict(contain_mention=self.contain_mention, word_window_length=self.word_window_length, \
                        ignore_case=self.ignore_case)
+    if self.load_word_dict is not None:
+        self.word_dict = self.load_word_dict
     self.lstm_X = self.map_word_to_id(self.training_set, contain_mention=self.contain_mention, \
                                       word_window_length=self.word_window_length, ignore_case=self.ignore_case)
     self.lstm(dim=self.dim, batch_size=self.batch_size, learning_rate=self.learning_rate, epoch=self.epoch, \
