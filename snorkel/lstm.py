@@ -42,6 +42,9 @@ class LSTMModel(object):
     # embedding
     randn = np.random.rand(self.lstm_settings['word_size'], self.lstm_settings['dim'])
     params['Wemb'] = (0.01 * randn).astype(config.floatX)
+    
+    print "LSTM Vocab {}".format(len(self.word_dict))
+    
     if self.load_emb and os.path.isfile(self.emb_path):
         c_found, c_lower, c_digits = 0.0,0.0,0.0
         
@@ -53,26 +56,35 @@ class LSTMModel(object):
         # build embedding term map
         Wemb = {}
         for term in self.word_dict:
+            widx = self.word_dict[term]
             if term in emb_vocab:
-                Wemb[emb_vocab[term]] = self.word_dict[term]
+                eidx = emb_vocab[term]
+                Wemb[eidx] = Wemb.get(eidx,[]) + [widx]
                 c_found=c_found+1
             elif term.lower() in emb_vocab:
-                Wemb[emb_vocab[term.lower()]] = self.word_dict[term]
+                eidx = emb_vocab[term.lower()]
+                Wemb[eidx] = Wemb.get(eidx,[]) + [widx]
                 c_lower=c_lower+1
             elif re.sub('\d', '0', term.lower()) in emb_vocab:
                 nt = re.sub('\d', '0', term.lower())
-                Wemb[emb_vocab[nt]] = self.word_dict[term]
+                eidx = emb_vocab[nt]
+                Wemb[eidx] = Wemb.get(eidx,[]) + [widx]
                 c_digits=c_digits+1
-                
+        
         # initalize embeddings
         repl = 0
         for i,line in enumerate(codecs.open(self.emb_path, 'r', 'utf-8')):
             line = line.rstrip().split()
             if len(line) != self.dim + 1:
+                if i in Wemb:
+                    print len(line), line[0]
                 continue
             if i in Wemb:
-                params['Wemb'][Wemb[i]] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
-                repl += 1
+                for widx in Wemb[i]:
+                    params['Wemb'][widx] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
+                    repl += 1
+                    
+        print len(self.word_dict), "vs", repl
         
         '''
         # initalize embeddings
