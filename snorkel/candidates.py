@@ -156,17 +156,24 @@ class EntityExtractor(CandidateExtractor):
 
 
 class RelationExtractor(CandidateExtractor):
-    """Temporary class for getting quick numbers"""
-    def __init__(self, extractor1, extractor2, join_key='context_id'):
+    """Temporary class for getting quick numbers
+
+    New feature (VK): filter_fn is an arbitrary function that filters candidate pairs,
+    e.g. if they are too far apart in a given sentence. This feature can probably be used to
+    emulate AlignedTableRelationExtractor below.
+    """
+    def __init__(self, extractor1, extractor2, join_key='context_id', filter_fn=None):
         super(RelationExtractor, self).__init__(parallelism=False, join_key=join_key)
         self.e1 = extractor1
         self.e2 = extractor2
+        self.filter_fn = filter_fn
 
     def _extract(self, contexts):
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 for span1 in self.e2._extract([context]):
-                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
+                    if not self.filter_fn or self.filter_fn(span0, span1):
+                        yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
 class AlignedTableRelationExtractor(CandidateExtractor):
     """Table relation extraction for aligned cells only
