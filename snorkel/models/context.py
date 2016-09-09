@@ -45,6 +45,9 @@ class Corpus(Context):
     def get_tables(self):
         return [table for doc in self.documents for table in doc.tables]
 
+    def get_phrases(self):
+        return [phrase for doc in self.documents for phrase in doc.phrases]
+
 
 class Document(Context):
     """An object in a Corpus."""
@@ -258,4 +261,8 @@ class Phrase(Context):
     }
 
     def __repr__(self):
-        return "Phrase" + str((self.table.document.name, self.table.position, self.cell.position, self.position, self.text))
+        if self.table is not None and self.cell is not None:
+            return "Phrase" + str((self.document.name, self.table.position, self.cell.position, self.position, self.text))
+        else:
+            return "Phrase" + str((self.document.name, None, None, self.position, self.text))
+            

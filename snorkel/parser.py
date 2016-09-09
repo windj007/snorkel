@@ -17,7 +17,8 @@ import lxml.etree as et
 from itertools import chain
 from utils import corenlp_cleaner, sort_X_on_Y, split_html_attrs
 import sys
-
+import warnings
+import copy
 
 
 class CorpusParser:
@@ -153,7 +154,7 @@ class XMLDocParser(DocParser):
         return fpath.endswith('.xml')
 
 
-class SentenceParser(object):
+class CoreNLPHandler(object):
     def __init__(self, delim='', tok_whitespace=False):
         # http://stanfordnlp.github.io/CoreNLP/corenlp-server.html
         # Spawn a StanfordCoreNLPServer process that accepts parsing requests at an HTTP port.
@@ -191,7 +192,7 @@ class SentenceParser(object):
             except:
                 sys.stderr.write('Could not kill CoreNLP server. Might already got killt...\n')
 
-    def get_nlp_tags(self, text, document):
+    def parse(self, doc, text):
         if len(text.strip()) == 0:
             return
         if isinstance(text, unicode):
@@ -200,7 +201,9 @@ class SentenceParser(object):
         text = text.decode('utf-8')
         content = resp.content.strip()
         if content.startswith("Request is too long") or content.startswith("CoreNLP request timed out"):
-          raise ValueError("File {} too long. Max character count is 100K".format(document.name))
+            warnings.warn("Submission from file {} too long. Max character count is 100K. Submission was skipped.".format(doc.name), RuntimeWarning)
+            return
+            # raise ValueError("File {} too long. Max character count is 100K".format(doc.name))
         blocks = json.loads(content, strict=False)['sentences']
         position = 0
         for block in blocks:
@@ -223,33 +226,30 @@ class SentenceParser(object):
                                 block['tokens'][-1]['characterOffsetEnd']]
             parts['xmltree'] = None
             parts['position'] = position
+            parts['document'] = doc
             position += 1
             yield parts
 
-    def parse(self, document, text):
+
+class SentenceParser(object):
+    def __init__(self, delim='', tok_whitespace=False):
+        self.corenlp_handler = CoreNLPHandler(delim=delim, tok_whitespace=tok_whitespace)
+
+    def parse(self, doc, text):
         """Parse a raw document as a string into a list of sentences"""
-        for parts in self.get_nlp_tags(text, document):
-            sent = Sentence(**parts)
-            sent.document = document
-            yield sent
+        for parts in self.corenlp_handler.parse(doc, text):
+            yield Sentence(**parts)
 
 
 class HTMLParser(DocParser):
     """Simple parsing of files into html documents"""
-    # TEMP
-    # def init(self):
-    #     self.doc_id = 0
-    # TEMP
-
     def parse_file(self, fp, file_name):
         with open(fp, 'r') as f:
             soup = BeautifulSoup(f, 'lxml')
             for text in soup.find_all('html'):
-                # id = self.doc_id
                 name = re.sub(r'\..*$', '', os.path.basename(fp))
                 attribs = None
                 yield Document(name=name, file=str(file_name), attribs=attribs), str(text)
-                # self.doc_id += 1
 
 
 class OmniParser(object):
@@ -258,53 +258,88 @@ class OmniParser(object):
 
     def parse(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
-        for phrase in self.parse_tag(document, soup):
+        self.table_idx = -1
+        for phrase in self.parse_tag(soup, document):
             yield phrase
 
-    def parse_tag(self, document, tag):
+    def parse_tag(self, tag, document, table=None, cell=None, anc_tags=[], anc_attrs=[]):
         for child in tag.contents:
             if isinstance(child, NavigableString):
-                pass
-                # print unicode(child)
-            elif isinstance(child, Tag):
+                # text = u' '.join(list(expand_implicit_text(unicode(child))))
+                for parts in self.table_parser.corenlp_handler.parse(document, unicode(child)):
+                    parts['document'] = document
+                    parts['table'] = table
+                    parts['cell'] = cell
+                    if cell is not None:
+                        parts['row_num'] = cell.row_num
+                        parts['col_num'] = cell.col_num
+                    parts['html_tag'] = tag.name
+                    parts['html_attrs'] = tag.attrs
+                    parts['html_anc_tags'] = anc_tags
+                    parts['html_anc_attrs'] = anc_attrs
+                    yield Phrase(**parts)
+            else: # isinstance(child, Tag) = True
                 if child.name == "table":
-                    print "TABLE!"
-                    for phrase in self.table_parser.parse(document, unicode(child)):
-                        yield phrase
-                else:
-                    for phrase in self.parse_tag(document, child):
-                        yield phrase
-            else:
-                import pdb; pdb.set_trace()
+                    self.table_idx += 1
+                    self.row_num = -1
+                    self.cell_idx = -1
+                    table = Table(document=document, position=self.table_idx, text=unicode(child))
+                elif child.name == "tr":
+                    self.row_num += 1
+                    self.col_num = -1
+                elif child.name in ["td","th"]:
+                    # TODO: consider using bs4's 'unwrap()' method to remove formatting
+                    #   html tags from the contents of cells so entities are not broken up
+                    self.cell_idx += 1
+                    self.col_num += 1
+                    parts = defaultdict(list)
+                    parts['document'] = document
+                    parts['table'] = table
+                    parts['position'] = self.cell_idx
+                    parts['text'] = unicode(child.get_text(strip=True))
+                    parts['row_num'] = self.row_num
+                    parts['col_num'] = self.col_num
+                    parts['html_tag'] = child.name
+                    parts['html_attrs'] = split_html_attrs(child.attrs.items())
+                    parts['html_anc_tags'] = anc_tags 
+                    parts['html_anc_attrs'] = anc_attrs
+                    cell = Cell(**parts)
+                # FIXME: making so many copies is hacky and wasteful
+                temp_anc_tags = copy.deepcopy(anc_tags)
+                temp_anc_tags.append(child.name)
+                temp_anc_attrs = copy.deepcopy(anc_attrs)
+                temp_anc_attrs.extend(child.attrs)
+                for phrase in self.parse_tag(child, document, table, cell, temp_anc_tags, temp_anc_attrs):
+                    yield phrase
 
-
-class TableParser(SentenceParser):
+class TableParser(object):
     """Simple parsing of the tables in html documents into cells and phrases within cells"""
     def __init__(self, tok_whitespace=False):
         self.delim = "<NC>" # NC = New Cell
-        super(TableParser, self).__init__(delim=self.delim[1:-1], tok_whitespace=tok_whitespace)
+        self.corenlp_handler = CoreNLPHandler(delim=self.delim[1:-1], tok_whitespace=tok_whitespace)
 
     def parse(self, document, text, batch=False):
         # BROKEN: DO NOT USE BATCH MODE FOR NOW
         if batch:
-            for table in self.parse_html(document, text):
-                char_idx = 0
-                cell_start = [char_idx]
-                for cell in self.parse_table(table):
-                    char_idx += len(cell.text)
-                    cell_start.append(char_idx)
-                text_batch = self.delim.join(cell.text for cell in table.cells)
-                char_idx = 0
-                cell_idx = 0
-                position = 0 # position of Phrase in Cell
-                for parts in self.get_nlp_tags(text_batch, document):
-                    while char_idx >= cell_start[cell_idx + 1]:
-                        cell_idx += 1
-                        position = 0
-                    parts['position'] = position
-                    char_idx += len(parts['text']) + (position > 0) # account for lost whitespace
-                    position += 1
-                    yield Phrase(**(self.inherit_cell_attrs(table.cells[cell_idx], parts)))
+            raise NotImplementedError
+            # for table in self.parse_html(document, text):
+            #     char_idx = 0
+            #     cell_start = [char_idx]
+            #     for cell in self.parse_table(table):
+            #         char_idx += len(cell.text)
+            #         cell_start.append(char_idx)
+            #     text_batch = self.delim.join(cell.text for cell in table.cells)
+            #     char_idx = 0
+            #     cell_idx = 0
+            #     position = 0 # position of Phrase in Cell
+            #     for parts in self.corenlp_handler.parse(document, text_batch):
+            #         while char_idx >= cell_start[cell_idx + 1]:
+            #             cell_idx += 1
+            #             position = 0
+            #         parts['position'] = position
+            #         char_idx += len(parts['text']) + (position > 0) # account for lost whitespace
+            #         position += 1
+            #         yield Phrase(**(self.inherit_cell_attrs(table.cells[cell_idx], parts)))
 
         else: # not batched
             for table in self.parse_html(document, text):
@@ -315,8 +350,7 @@ class TableParser(SentenceParser):
     def parse_html(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
         for i, table in enumerate(soup.find_all('table')):
-            yield Table(document_id=document.id,
-                        document=document,
+            yield Table(document=document,
                         position=i,
                         text=str(table))
 
@@ -335,47 +369,32 @@ class TableParser(SentenceParser):
                 # TODO: include title, caption, footers, etc.
                 if html_cell.name in ['th','td']:
                     parts = defaultdict(list)
-                    parts['document_id'] = table.document_id
-                    parts['table_id'] = table.id
-                    parts['position'] = position
                     parts['document'] = table.document
                     parts['table'] = table
+                    parts['position'] = position
 
-                    parts['text'] = str(html_cell.get_text(strip=True))
+                    parts['text'] = unicode(html_cell.get_text(strip=True))
                     parts['row_num'] = row_num
                     parts['col_num'] = col_num
                     parts['html_tag'] = html_cell.name
                     parts['html_attrs'] = split_html_attrs(html_cell.attrs.items())
-                    parts['html_anc_tags'] = html_anc_tags
+                    parts['html_anc_tags'] = html_anc_tags 
                     parts['html_anc_attrs'] = html_anc_attrs
                     cell = Cell(**parts)
-                    html_cell['snorkel_id'] = cell.id   # add new attribute to the html
+                    # html_cell['snorkel_id'] = cell.id   # add new attribute to the html
                     yield cell
                     position += 1
                     col_num += 1
 
     def parse_cell(self, cell):
-        parts = self.inherit_cell_attrs(cell, defaultdict(list))
-        for i, sent in enumerate(super(TableParser, self).parse(cell.document, cell.text)):
-            parts['text'] = sent.text
-            parts['position'] = i
-            parts['words'] = sent.words
-            parts['lemmas'] = sent.lemmas
-            parts['poses'] = sent.poses
-            parts['char_offsets'] = sent.char_offsets
-            parts['dep_parents'] = sent.dep_parents
-            parts['dep_labels'] = sent.dep_labels
+        for i, parts in enumerate(self.corenlp_handler.parse(cell.document, cell.text)):
+            parts = self.inherit_cell_attrs(cell, parts)
             yield Phrase(**parts)
 
     def inherit_cell_attrs(self, cell, parts):
-        parts['document_id'] = cell.document_id
-        parts['table_id'] = cell.table_id
-        parts['cell_id'] = cell.id
-
         parts['document'] = cell.document
         parts['table'] = cell.table
         parts['cell'] = cell
-
         parts['row_num'] = cell.row_num
         parts['col_num'] = cell.col_num
         parts['html_tag'] = cell.html_tag
