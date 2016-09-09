@@ -158,17 +158,24 @@ class EntityExtractor(CandidateExtractor):
 
 
 class RelationExtractor(CandidateExtractor):
-    """Temporary class for getting quick numbers"""
-    def __init__(self, extractor1, extractor2, join_key='context_id'):
+    """Temporary class for getting quick numbers
+
+    New feature (VK): filter_fn is an arbitrary function that filters candidate pairs,
+    e.g. if they are too far apart in a given sentence. This feature can probably be used to
+    emulate AlignedTableRelationExtractor below.
+    """
+    def __init__(self, extractor1, extractor2, join_key='context_id', filter_fn=None):
         super(RelationExtractor, self).__init__(parallelism=False, join_key=join_key)
         self.e1 = extractor1
         self.e2 = extractor2
+        self.filter_fn = filter_fn
 
     def _extract(self, contexts):
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 for span1 in self.e2._extract([context]):
-                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
+                    if not self.filter_fn or self.filter_fn(span0, span1):
+                        yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
 class AlignedTableRelationExtractor(CandidateExtractor):
     """Table relation extraction for aligned cells only
@@ -178,15 +185,22 @@ class AlignedTableRelationExtractor(CandidateExtractor):
         'col': output candidates aligned over columns
          None: output candidates aligned over either rows or columns
     """
-    def __init__(self, extractor1, extractor2, axis=None, join_key='context_id'):
+    def __init__(self, extractor1, extractor2, axis=None, induced=False, join_key='context_id'):
         super(AlignedTableRelationExtractor, self).__init__(parallelism=False, join_key=join_key)
         self.axis = axis
         self.e1 = extractor1
         self.e2 = extractor2
+        self.induced = induced
         if axis not in ('row', 'col', None):
             raise Exception('Invalid axis type')
 
     def _extract(self, contexts):
+        if self.induced:
+            return self._extract_induced(contexts)
+        else:
+            return self._extract_normal(contexts)
+
+    def _extract_normal(self, contexts):
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 for span1 in self.e2._extract([context]):
@@ -197,8 +211,47 @@ class AlignedTableRelationExtractor(CandidateExtractor):
                     if self.axis is None:
                         if span0.context.cell.col_num != span1.context.cell.col_num \
                         and span0.context.cell.row_num != span1.context.cell.row_num: continue
-                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))                    
+                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
+    def _extract_induced(self, contexts):
+        for context in contexts:
+            for span0 in self.e1._extract([context]):
+                if self.axis in ('row', 'col'):
+                    aligned_cells = span0.context.cell.aligned_cells(self.axis, induced=True)
+                if self.axis is None:
+                    aligned_cells = span0.context.cell.aligned_cells('row', induced=True) \
+                                  + span0.context.cell.aligned_cells('col', induced=True)
+                for span1 in self.e2._extract([context]):
+                    if span1.context.cell in aligned_cells:
+                        yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
+
+class UnionExtractor(CandidateExtractor):
+    """Chain multiple extractors"""
+
+    def __init__(self, extractor_list, context_list=None, parallelism=False, join_key='context_id'):
+        super(UnionExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
+        self.extractor_list = extractor_list
+        self.context_list = context_list
+
+        if context_list and len(context_list) != len(extractor_list):
+            raise Exception('If given, context list must have same length as extractor list')
+
+    def _extract(self, contexts):
+        """Apply all the generators to the same set of contexts"""
+        generators = [extractor._extract(contexts) for extractor in self.extractor_list]
+        return chain(*generators)
+
+    def union(self):
+        """Apply extractors to given set of contexts"""
+        generators = [extractor._extract(contexts) for extractor, contexts 
+                      in zip(self.extractor_list, self.context_list)]
+        union_generator = chain(*generators)
+
+        c = CandidateSet()
+        for candidate in union_generator:
+            c.candidates.append(candidate.promote())
+
+        return c
 
 class Ngrams(CandidateSpace):
     """
@@ -291,3 +344,25 @@ class TableNgrams(Ngrams):
         for phrase in phrases:
             for temp_span in super(TableNgrams, self).apply(phrase):
                 yield temp_span
+
+class CellSpace(CandidateSpace):
+    """Defines the space of candidates as the entire text in a cell"""
+    def __init__(self):
+        CandidateSpace.__init__(self)
+
+    def apply(self, context):
+        try:
+            phrases = context.phrases
+        except:
+            phrases = [context]
+
+        for phrase in phrases:
+            for temp_span in self._apply_to_phrase(phrase):
+                yield temp_span
+
+    def _apply_to_phrase(self, phrase):
+        L = len(phrase.char_offsets)
+        char_start = phrase.char_offsets[0]
+        cl = phrase.char_offsets[L-1] - phrase.char_offsets[0] + len(phrase.words[L-1])
+        char_end = phrase.char_offsets[0] + cl - 1
+        yield TemporarySpan(char_start=char_start, char_end=char_end, context=phrase)
