@@ -226,13 +226,30 @@ class AlignedTableRelationExtractor(CandidateExtractor):
 class UnionExtractor(CandidateExtractor):
     """Chain multiple extractors"""
 
-    def __init__(self, extractor_list, parallelism=False, join_key='context_id'):
+    def __init__(self, extractor_list, context_list=None, parallelism=False, join_key='context_id'):
         super(UnionExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
         self.extractor_list = extractor_list
+        self.context_list = context_list
+
+        if context_list and len(context_list) != len(extractor_list):
+            raise Exception('If given, context list must have same length as extractor list')
 
     def _extract(self, contexts):
+        """Apply all the generators to the same set of contexts"""
         generators = [extractor.extract(contexts) for extractor in self.extractor_list]
         return chain(*generators)
+
+    def union(self):
+        """Apply extractors to given set of contexts"""
+        generators = [extractor._extract(contexts) for extractor, contexts 
+                      in zip(self.extractor_list, self.context_list)]
+        union_generator = chain(*generators)
+
+        c = CandidateSet()
+        for candidate in union_generator:
+            c.candidates.append(candidate.promote())
+
+        return c
 
 class Ngrams(CandidateSpace):
     """
