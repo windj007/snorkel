@@ -238,7 +238,7 @@ class UnionExtractor(CandidateExtractor):
 
     def _extract(self, contexts):
         """Apply all the generators to the same set of contexts"""
-        generators = [extractor.extract(contexts) for extractor in self.extractor_list]
+        generators = [extractor._extract(contexts) for extractor in self.extractor_list]
         return chain(*generators)
 
     def union(self):
