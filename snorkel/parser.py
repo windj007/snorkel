@@ -254,7 +254,8 @@ class HTMLParser(DocParser):
 
 class OmniParser(object):
     def __init__(self):
-        self.table_parser = TableParser()
+        self.delim = "<NC>" # NC = New Cell
+        self.corenlp_handler = CoreNLPHandler(delim=self.delim[1:-1])
 
     def parse(self, document, text):
         soup = BeautifulSoup(text, 'lxml')
@@ -266,7 +267,7 @@ class OmniParser(object):
         for child in tag.contents:
             if isinstance(child, NavigableString):
                 # text = u' '.join(list(expand_implicit_text(unicode(child))))
-                for parts in self.table_parser.corenlp_handler.parse(document, unicode(child)):
+                for parts in self.corenlp_handler.parse(document, unicode(child)):
                     parts['document'] = document
                     parts['table'] = table
                     parts['cell'] = cell
