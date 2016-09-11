@@ -49,7 +49,7 @@ class CorpusParser:
         return corpus
 
 
-class DocParser:
+class DocParser(object):
     """Parse a file or directory of files into a set of Document objects."""
     def __init__(self, path):
         self.path = path
@@ -134,7 +134,7 @@ class XMLDocParser(DocParser):
     """
     def __init__(self, path, doc='.//document', text='./text/text()', id='./id/text()',
                     keep_xml_tree=False):
-        DocParser.__init__(self, path)
+        super(XMLDocParser, self).__init__(path)
         self.doc = doc
         self.text = text
         self.id = id
