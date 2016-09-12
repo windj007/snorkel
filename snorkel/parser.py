@@ -211,7 +211,7 @@ class CoreNLPHandler(object):
             dep_order, dep_par, dep_lab = [], [], []
             num_tokens = len(block['tokens'])
             for tok, deps in zip(block['tokens'], block['basic-dependencies']):
-                parts['words'].append(tok['word'])
+                parts['words'].append(tok['originalText'])
                 parts['lemmas'].append(tok['lemma'])
                 parts['poses'].append(tok['pos'])
                 parts['char_offsets'].append(tok['characterOffsetBegin'])
