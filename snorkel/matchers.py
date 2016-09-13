@@ -279,6 +279,8 @@ class CellDictNameMatcher(NgramMatcher):
         if self.axis not in ('row', 'col', None):
             raise Exception("Invalid axis argument")
 
+        self.cleanup_regex = u'[\u2020*0-9]+'
+
         try:
             self.d = frozenset(w.lower() if self.ignore_case else w for w in self.opts['d'])
         except KeyError:
@@ -299,12 +301,12 @@ class CellDictNameMatcher(NgramMatcher):
         except UnicodeDecodeError:
             return w
 
-    def _strip_punct(self, w):
-        return w.translate(self.punc_tbl)
-        # return w.translate(string.maketrans("",""), string.punctuation)
+    def _cleanup(self, w):
+        return re.sub(self.cleanup_regex, '', w)
 
     def _f_span(self, p):
         p = p.lower() if self.ignore_case else p
+        p = self._cleanup(p)
         p = self._stem(p) if self.stemmer is not None else p
         return True if p in self.d else False
 
