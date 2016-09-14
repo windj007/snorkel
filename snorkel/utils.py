@@ -35,10 +35,10 @@ def split_html_attrs(attrs):
         html_attrs += ["=".join([attr,val]) for val in values]
     return html_attrs
 
-def slice_into_ngrams(tokens, n_max=3, delim='_'):
+def slice_into_ngrams(tokens, n_max=3, n_min=1, delim='_'):
     N = len(tokens)
     for root in range(N):
-        for n in range(min(n_max, N - root)):
+        for n in range(max(0,n_min-1), min(n_max, N - root)):
             yield delim.join(tokens[root:root+n+1])
 
 def expand_implicit_text(text):
