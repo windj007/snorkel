@@ -160,11 +160,19 @@ class Learner(object):
     def predictions(self):
         return self.model.predict(self.X_test)
 
-    def predict_wmv(self, test_candidates):
+    def predict_wmv(self, test_candidates, use_weights=True):
         """Predict using *weighted* majority vote of *just the LFs*"""
         # Ensure that L_test is initialized
         self.L_test, self.F_test = self.training_set.transform(test_candidates)
-        return np.sign(self.L_test.dot(self.lf_weights()))
+        weights = self.lf_weights() if use_weights else np.ones(self.lf_weights().shape)
+        return np.sign(self.L_test.dot(weights))
+
+    def score_wmv(self, test_candidates, use_weights=True):
+        """Compute scores using *weighted* majority vote of *just the LFs*"""
+        # Ensure that L_test is initialized
+        self.L_test, self.F_test = self.training_set.transform(test_candidates)
+        weights = self.lf_weights() if use_weights else np.ones(self.lf_weights().shape)
+        return self.L_test.dot(weights)
 
     def test_mv(self, test_candidates, gold_labels, display=True, return_vals=False):
         """Test *unweighted* majority vote of *just the LFs*"""
