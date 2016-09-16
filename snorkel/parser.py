@@ -261,8 +261,8 @@ class CoreNLPHandler:
 
 
 class SentenceParser(object):
-    def __init__(self, tok_whitespace=False):
-        self.corenlp_handler = CoreNLPHandler(tok_whitespace=tok_whitespace)
+    def __init__(self, port=12345, tok_whitespace=False):
+        self.corenlp_handler = CoreNLPHandler(port,tok_whitespace=tok_whitespace)
 
     def parse(self, doc, text):
         """Parse a raw document as a string into a list of sentences"""
