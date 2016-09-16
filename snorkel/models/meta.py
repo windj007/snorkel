@@ -8,6 +8,10 @@ from sqlalchemy.orm import sessionmaker
 if 'SNORKELDB' in os.environ and os.environ['SNORKELDB'] != '':
     snorkel_postgres = os.environ['SNORKELDB'].startswith('postgres')
     snorkel_engine = create_engine(os.environ['SNORKELDB'])
+elif 'SNORKELDB' in os.environ and os.environ['SNORKELDB'].startswith('sqlite'):
+    snorkel_postgres = False
+    print "Using {} database".format(os.environ['SNORKELDB'])
+    snorkel_engine = create_engine(os.environ['SNORKELDB'])
 else:
     snorkel_postgres = False
     snorkel_engine = create_engine('sqlite:///snorkel.db')
