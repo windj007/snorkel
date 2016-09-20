@@ -1,6 +1,6 @@
 from .models import CandidateSet, TemporarySpan, SpanPair, Phrase
 from itertools import chain
-from multiprocessing import Process, Queue, JoinableQueue
+from multiprocessing import Pool
 from Queue import Empty
 from utils import get_as_dict
 import re
@@ -33,25 +33,8 @@ class CandidateSpace(object):
     def apply(self, x):
         raise NotImplementedError()
 
-
-class CandidateExtractorProcess(Process):
-    def __init__(self, candidate_space, matcher, contexts_in, candidates_out):
-        Process.__init__(self)
-        self.candidate_space = candidate_space
-        self.matcher         = matcher
-        self.contexts_in     = contexts_in
-        self.candidates_out  = candidates_out
-
-    def run(self):
-        while True:
-            try:
-                context = self.contexts_in.get(False)
-                for candidate in self.matcher.apply(self.candidate_space.apply(context)):
-                    self.candidates_out.put(candidate, False)
-                self.contexts_in.task_done()
-            except Empty:
-                break
-
+def f(x):
+    return x**2
 
 class CandidateExtractor(object):
     """
@@ -87,30 +70,23 @@ class CandidateExtractor(object):
         raise NotImplementedError
 
     def _extract_multiprocess(self, contexts):
-        contexts_in    = JoinableQueue()
-        candidates_out = Queue()
+        pool = Pool(self.parallelism)
+        divided_contexts = [ [context for (i, context) in enumerate(contexts) if i % self.parallelism == n ] for n in range(self.parallelism) ]
 
-        # Fill the in-queue with contexts
-        for context in contexts:
-            contexts_in.put(context)
+        results = list()
+        for contexts in divided_contexts:
+            results.append(pool.apply_async(parallel_fn, (self, contexts)))
+        out = chain.from_iterable([res.get() for res in results])    
+        pool.close()
+        pool.join()
+        return []
+        # results = [pool.apply_async(parallel_fn, (self, contexts)) for contexts in divided_contexts]
+        parfunc = Parfunc(self)
+        results = pool.map(parfunc.apply, divided_contexts)
+        out = chain.from_iterable([res.get() for res in results])
+        pool.close()
 
-        # Start worker Processes
-        for i in range(self.parallelism):
-            p = CandidateExtractorProcess(self.candidate_space, self.matcher, contexts_in, candidates_out)
-            p.start()
-            self.ps.append(p)
-
-        # Join on JoinableQueue of contexts
-        contexts_in.join()
-
-        # Collect candidates out
-        candidates = []
-        while True:
-            try:
-                candidates.append(candidates_out.get(True, QUEUE_COLLECT_TIMEOUT))
-            except Empty:
-                break
-        return candidates
+        return out
 
     def _index(self, candidates):
         self._candidates_by_id         = {}
@@ -185,8 +161,8 @@ class AlignedTableRelationExtractor(CandidateExtractor):
         'col': output candidates aligned over columns
          None: output candidates aligned over either rows or columns
     """
-    def __init__(self, extractor1, extractor2, axis=None, induced=False, join_key='context_id'):
-        super(AlignedTableRelationExtractor, self).__init__(parallelism=False, join_key=join_key)
+    def __init__(self, extractor1, extractor2, parallelism=False, axis=None, induced=False, join_key='context_id'):
+        super(AlignedTableRelationExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
         self.axis = axis
         self.e1 = extractor1
         self.e2 = extractor2
@@ -224,6 +200,63 @@ class AlignedTableRelationExtractor(CandidateExtractor):
                 for span1 in self.e2._extract([context]):
                     if span1.context.cell in aligned_cells:
                         yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
+
+class SpanningTableRelationExtractor(CandidateExtractor):
+    """Table relation extraction for cells that span across entire table
+
+    Axis argument can be:
+        'row': output candidates aligned over rows
+        'col': output candidates aligned over columns
+         None: output candidates aligned over either rows or columns
+    """
+    def __init__(self, extractor1, extractor2, parallelism=False, axis=None, induced=False, join_key='context_id'):
+        super(AlignedTableRelationExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
+        self.axis = axis
+        self.e1 = extractor1
+        self.e2 = extractor2
+        self.induced = induced
+        if axis not in ('row', 'col'):
+            raise Exception('Invalid axis type')
+
+    def _extract(self, contexts):
+        def _spans(cell, axis):
+            assert axis in ('row', 'col')
+            span_axis = 'row' if axis == 'col' else 'row'
+            axis_name = span_axis + '_num'
+
+            return True if \
+                    len([c for c in cell.table.cells if getattr(c, axis_name)==getattr(c, axis_name)]) > 1 \
+                else False
+
+        for context in contexts:
+            for span0 in self.e1._extract([context]):
+                cell0 = span0.context.cell
+                if cell0.position > 40: continue
+                for span1 in self.e2._extract([context]):
+                    cell1 = span1.context.cell
+                    if cell1.position > 40: continue
+                    print cell0.row_num, cell0.col_num, cell1.row_num, cell1.col_num
+                    if self.axis == 'row':
+                        if cell0.row_num != cell1.row_num: continue
+                        if cell0.col_num == cell1.col_num: continue
+                        min_col = min(cell0.col_num, cell1.col_num)
+                        max_col = max(cell0.col_num, cell1.col_num)
+                        middle_cells = [ c for c in span0.context.table.cells 
+                                         if c.row_num == cell0.row_num
+                                         and min_col < c < max_col ]
+                        if any(_spans(c, 'col') for c in middle_cells): continue
+
+                    if self.axis == 'col':
+                        if cell0.col_num != cell1.col_num: continue
+                        if cell0.row_num == cell1.row_num: continue
+                        min_row = min(cell0.row_num, cell1.row_num)
+                        max_row = max(cell0.row_num, cell1.row_num)
+                        middle_cells = [ c for c in span0.context.table.cells 
+                                         if c.col_num == cell0.col_num
+                                         and min_row < c < max_row ]
+                        if any(_spans(c, 'row') for c in middle_cells): continue
+
+                    yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
 class UnionExtractor(CandidateExtractor):
     """Chain multiple extractors"""
@@ -366,3 +399,15 @@ class CellSpace(CandidateSpace):
         cl = phrase.char_offsets[L-1] - phrase.char_offsets[0] + len(phrase.words[L-1])
         char_end = phrase.char_offsets[0] + cl - 1
         yield TemporarySpan(char_start=char_start, char_end=char_end, context=phrase)
+
+def parallel_fn(extractor, contexts):
+    candidates_out = list()
+    for candidate in extractor._extract(contexts):
+        candidates_out.append(candidate)
+    return candidates_out
+
+class Parfunc(object):
+    def __init__(self, extractor):
+        self.extractor = extractor
+    def apply(self, contexts):
+        return parallel_fn(self.extractor, contexts)
