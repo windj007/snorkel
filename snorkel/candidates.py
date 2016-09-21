@@ -210,7 +210,7 @@ class SpanningTableRelationExtractor(CandidateExtractor):
          None: output candidates aligned over either rows or columns
     """
     def __init__(self, extractor1, extractor2, parallelism=False, axis=None, induced=False, join_key='context_id'):
-        super(AlignedTableRelationExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
+        super(SpanningTableRelationExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
         self.axis = axis
         self.e1 = extractor1
         self.e2 = extractor2
