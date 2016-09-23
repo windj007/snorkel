@@ -221,23 +221,22 @@ class SpanningTableRelationExtractor(CandidateExtractor):
     def _extract(self, contexts):
         def _spans(cell, axis):
             assert axis in ('row', 'col')
-            span_axis = 'row' if axis == 'col' else 'row'
-            axis_name = span_axis + '_num'
+            axis_name = axis + '_num'
+            axis_cells = [c for c in cell.table.cells if getattr(c, axis_name)==getattr(cell, axis_name)]
 
-            return True if \
-                    len([c for c in cell.table.cells if getattr(c, axis_name)==getattr(c, axis_name)]) > 1 \
-                else False
+            return True if len(axis_cells) == 1 and axis_cells[0] == cell else False
 
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 cell0 = span0.context.cell
-                if cell0.position > 40: continue
+                # if cell0.position > 40: continue
                 for span1 in self.e2._extract([context]):
                     cell1 = span1.context.cell
-                    if cell1.position > 40: continue
-                    print cell0.row_num, cell0.col_num, cell1.row_num, cell1.col_num
+                    # if cell1.position > 40: continue
+                    print
+                    print cell0.row_num, cell0.col_num, cell0.text
+                    print cell1.row_num, cell1.col_num, cell1.text
                     if self.axis == 'row':
-                        if cell0.row_num != cell1.row_num: continue
                         if cell0.col_num == cell1.col_num: continue
                         min_col = min(cell0.col_num, cell1.col_num)
                         max_col = max(cell0.col_num, cell1.col_num)
@@ -247,15 +246,17 @@ class SpanningTableRelationExtractor(CandidateExtractor):
                         if any(_spans(c, 'col') for c in middle_cells): continue
 
                     if self.axis == 'col':
-                        if cell0.col_num != cell1.col_num: continue
                         if cell0.row_num == cell1.row_num: continue
-                        min_row = min(cell0.row_num, cell1.row_num)
-                        max_row = max(cell0.row_num, cell1.row_num)
+                        top_cell = cell0 if cell0.row_num < cell1.row_num else cell1
+                        bot_cell = cell0 if cell0.row_num > cell1.row_num else cell1
+                        if not _spans(top_cell, 'row'): continue
+                        min_row = top_cell.row_num
+                        max_row = bot_cell.row_num
                         middle_cells = [ c for c in span0.context.table.cells 
-                                         if c.col_num == cell0.col_num
-                                         and min_row < c < max_row ]
+                                         if min_row < c.row_num < max_row ]
                         if any(_spans(c, 'row') for c in middle_cells): continue
 
+                    print 'match!'
                     yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
 class UnionExtractor(CandidateExtractor):
