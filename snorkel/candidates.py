@@ -209,54 +209,39 @@ class SpanningTableRelationExtractor(CandidateExtractor):
         'col': output candidates aligned over columns
          None: output candidates aligned over either rows or columns
     """
-    def __init__(self, extractor1, extractor2, parallelism=False, axis=None, induced=False, join_key='context_id'):
+    def __init__(self, extractor1, extractor2, parallelism=False, axis=None, 
+                 full0=False, full1=False, join_key='context_id'):
         super(SpanningTableRelationExtractor, self).__init__(parallelism=parallelism, join_key=join_key)
         self.axis = axis
         self.e1 = extractor1
         self.e2 = extractor2
-        self.induced = induced
+        self.full0 = full0
+        self.full1 = full1
         if axis not in ('row', 'col'):
             raise Exception('Invalid axis type')
 
     def _extract(self, contexts):
-        def _spans(cell, axis):
-            assert axis in ('row', 'col')
-            axis_name = axis + '_num'
-            axis_cells = [c for c in cell.table.cells if getattr(c, axis_name)==getattr(cell, axis_name)]
-
-            return True if len(axis_cells) == 1 and axis_cells[0] == cell else False
-
+        span_axis = 'row' if self.axis == 'col' else 'row'
+        sp_ax_name = span_axis + '_num'
+    
         for context in contexts:
             for span0 in self.e1._extract([context]):
                 cell0 = span0.context.cell
-                # if cell0.position > 40: continue
+                if self.full0 and not cell0.spans(span_axis): continue
                 for span1 in self.e2._extract([context]):
                     cell1 = span1.context.cell
-                    # if cell1.position > 40: continue
-                    print
-                    print cell0.row_num, cell0.col_num, cell0.text
-                    print cell1.row_num, cell1.col_num, cell1.text
-                    if self.axis == 'row':
-                        if cell0.col_num == cell1.col_num: continue
-                        min_col = min(cell0.col_num, cell1.col_num)
-                        max_col = max(cell0.col_num, cell1.col_num)
-                        middle_cells = [ c for c in span0.context.table.cells 
-                                         if c.row_num == cell0.row_num
-                                         and min_col < c < max_col ]
-                        if any(_spans(c, 'col') for c in middle_cells): continue
+                    if self.full1 and not cell1.spans(span_axis): continue
 
-                    if self.axis == 'col':
-                        if cell0.row_num == cell1.row_num: continue
-                        top_cell = cell0 if cell0.row_num < cell1.row_num else cell1
-                        bot_cell = cell0 if cell0.row_num > cell1.row_num else cell1
-                        if not _spans(top_cell, 'row'): continue
-                        min_row = top_cell.row_num
-                        max_row = bot_cell.row_num
-                        middle_cells = [ c for c in span0.context.table.cells 
-                                         if min_row < c.row_num < max_row ]
-                        if any(_spans(c, 'row') for c in middle_cells): continue
+                    if getattr(cell0, sp_ax_name) == getattr(cell1, sp_ax_name): continue
+                    top_cell = cell0 if getattr(cell0, sp_ax_name) < getattr(cell1, sp_ax_name) else cell1
+                    bot_cell = cell0 if getattr(cell0, sp_ax_name) > getattr(cell1, sp_ax_name) else cell1
+                    if not top_cell.spans(span_axis): continue
+                    min_ax = getattr(top_cell, sp_ax_name)
+                    max_ax = getattr(bot_cell, sp_ax_name)
+                    middle_cells = [ c for c in span0.context.table.cells 
+                                     if min_ax < getattr(c, sp_ax_name) < max_ax ]
+                    if any(c.spans(span_axis) for c in middle_cells): continue
 
-                    print 'match!'
                     yield SpanPair(span0=(span0.promote()), span1=(span1.promote()))
 
 class UnionExtractor(CandidateExtractor):

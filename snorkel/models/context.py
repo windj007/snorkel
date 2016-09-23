@@ -147,6 +147,13 @@ class Cell(Context):
     def __repr__(self):
         return "Cell" + str((self.document.name, self.table.position, self.position, self.text))
 
+    def spans(self, axis):
+        """Returns true if cell spans entire axis"""
+        assert axis in ('row', 'col')
+        axis_name = axis + '_num'
+        axis_cells = [c for c in self.table.cells if getattr(c, axis_name)==getattr(self, axis_name)]
+        return True if len(axis_cells) == 1 and axis_cells[0] == self else False
+
     def head_cell(self, axis, induced=False):
         """Return first aligned cell along given axis
 
