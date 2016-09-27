@@ -2,6 +2,10 @@ import re
 import warnings
 import sys
 import unicodedata
+
+from utils import slice_into_ngrams
+from itertools import chain
+
 try:
     from nltk.stem.porter import PorterStemmer
 except ImportError:
@@ -263,7 +267,7 @@ class RangeMatcher(NumberMatcher):
         return super(RangeMatcher,self)._f(cand) and (self.low <= self.num) and (self.num <= self.high)
 
 
-class CellDictNameMatcher(NgramMatcher):
+class CellNameDictMatcher(NgramMatcher):
     """Match cells based on their aligned ngrams
 
     Cell is matched if any of its aligned row/col cells contain spans 
@@ -312,15 +316,51 @@ class CellDictNameMatcher(NgramMatcher):
 
     def _f(self, c):
         c_span = c.promote()
-        row_matches, col_matches = True, True
         if self.axis == 'row': spans = c_span.row_ngrams(attr=self.attrib, n_max=self.n_max)
         if self.axis == 'col': spans = c_span.col_ngrams(attr=self.attrib, n_max=self.n_max)
         if self.axis is None:  spans = c_span.aligned_ngrams(attr=self.attrib, n_max=self.n_max)
 
         return True if any(self._f_span(span) for span in spans) else False
 
+class CellNameRegexMatcher(RegexMatch):
+    """Match cells based on their aligned ngrams
+
+    Cell is matched if any of its aligned row/col cells contain spans 
+    matched by a refex. Axis is either 'row', 'col'.
+
+    This is meant to extract all cells with a certain title (e.g. "phenotype").
+    """
+    def init(self):
+        super(CellNameRegexMatcher, self).init()
+
+        self.axis        = self.opts.get('axis', None)
+        self.n_max       = self.opts.get('n_max', 3)
+        self.header_only = self.opts.get('header_only', False)
+        if self.axis not in ('row', 'col'):
+            raise Exception("Invalid axis argument")
+
+    def _f(self, c):
+        c_span = c.promote()
+        my_cell = c_span.context.cell
+        
+        if self.header_only:
+            header_cell = my_cell.head_cell(axis=self.axis, induced=False)
+            if not header_cell or not header_cell.phrases: return False
+            aligned_ngrams = chain.from_iterable(
+                slice_into_ngrams(getattr(phrase, self.attrib), n_max=self.n_max, delim=self.sep) 
+                for phrase in header_cell.phrases)
+        else:
+            if self.axis == 'row': aligned_ngrams = c_span.row_ngrams(attr=self.attrib, n_max=self.n_max)
+            if self.axis == 'col': aligned_ngrams = c_span.col_ngrams(attr=self.attrib, n_max=self.n_max)
+
+        # print c_span.get_span()
+        # for ngram in aligned_ngrams:
+        #     print ngram, True if self.r.match(ngram) else None
+        # print
+        return True if any(self.r.match(ngram) for ngram in aligned_ngrams) else False
+
 class FullCellDictMatcher(NgramMatcher):
-    """Matches full cell if one of its ngrams is matched by dict
+    """Matches full cell if its contents are matched by dict
 
     The cell must also span across the entire table
     """
@@ -329,7 +369,7 @@ class FullCellDictMatcher(NgramMatcher):
         self.ignore_case = self.opts.get('ignore_case', True)
         self.attrib      = self.opts.get('attrib', WORDS)
         self.axis        = self.opts.get('axis', None)
-        self.n_max        = self.opts.get('n_max', 3)
+        self.n_max       = self.opts.get('n_max', 3)
         if self.axis not in ('row', 'col', None):
             raise Exception("Invalid axis argument")
 
