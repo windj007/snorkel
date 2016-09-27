@@ -168,6 +168,8 @@ class Cell(Context):
         if getattr(self, other_axis_name) == 0: return None
         cells = [cell for cell in self.aligned_cells(axis=axis) 
                  if getattr(cell, other_axis_name) == 0]
+        if not cells: return None
+
         assert len(cells) == 1
 
         head_cell = cells[0]
