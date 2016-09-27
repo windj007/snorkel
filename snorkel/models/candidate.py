@@ -281,7 +281,7 @@ class Span(Candidate, TemporarySpan):
 
 # helper functions
 def _get_phrase_ngrams(phrase, n_max=3, attr='words'):
-    for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max):
+    for ngram in slice_into_ngrams(getattr(phrase,attr), n_max=n_max, delim=' '):
         yield ngram
 
 class SpanPair(Candidate):
