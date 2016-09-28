@@ -336,6 +336,7 @@ class CellNameRegexMatcher(RegexMatch):
         self.axis        = self.opts.get('axis', None)
         self.n_max       = self.opts.get('n_max', 3)
         self.header_only = self.opts.get('header_only', False)
+        self.max_chars   = self.opts.get('max_chars', 20)
         if self.axis not in ('row', 'col'):
             raise Exception("Invalid axis argument")
 
@@ -353,10 +354,7 @@ class CellNameRegexMatcher(RegexMatch):
             if self.axis == 'row': aligned_ngrams = c_span.row_ngrams(attr=self.attrib, n_max=self.n_max)
             if self.axis == 'col': aligned_ngrams = c_span.col_ngrams(attr=self.attrib, n_max=self.n_max)
 
-        # print c_span.get_span()
-        # for ngram in aligned_ngrams:
-        #     print ngram, True if self.r.match(ngram) else None
-        # print
+        if self.header_only and len(header_cell.text) > self.max_chars: return False
         return True if any(self.r.match(ngram) for ngram in aligned_ngrams) else False
 
 class FullCellDictMatcher(NgramMatcher):
