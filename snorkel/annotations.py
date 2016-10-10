@@ -7,7 +7,8 @@ from .models.annotation import annotation_key_set_annotation_key_association as 
 from .utils import get_ORM_instance, ProgressBar
 from .features import get_span_feats
 from sqlalchemy.orm.session import object_session
-
+from multiprocessing import Process, Queue
+import math
 
 class csr_AnnotationMatrix(sparse.csr_matrix):
     """
@@ -79,7 +80,7 @@ class AnnotationManager(object):
         self.matrix_cls = matrix_cls
         self.default_f = default_f
     
-    def create(self, session, candidate_set, new_key_set, f=None):
+    def create(self, session, candidate_set, new_key_set, f=None, num_procs=1):
         """
         Generates annotations for candidates in a candidate set, and persists these to the database,
         as well as returning a sparse matrix representation.
@@ -106,9 +107,55 @@ class AnnotationManager(object):
         session.add(key_set)
         session.commit()
 
-        return self.update(session, candidate_set, key_set, True, f)
+        return self.update(session, candidate_set, key_set, True, f, num_procs)
     
-    def update(self, session, candidate_set, key_set, expand_key_set, f=None):
+    
+    def _insert_annotation_pairs(self, session, key_name, value, candidate, 
+                                key_set, expand_key_set, queries):
+        
+        key_select_query,key_insert_query,assoc_select_query,\
+        assoc_insert_query,anno_update_query,anno_insert_query = queries
+        
+        # Check if the AnnotationKey already exists, and gets its id
+        key_id = session.execute(key_select_query, {'name': key_name}).first()
+        if key_id is not None:
+            key_id = key_id[0]
+
+        # If expand_key_set is True, then we will always insert or update the Annotation
+        if expand_key_set:
+
+            # If key_name does not exist in the database already, creates a new record
+            if key_id is None:
+                key_id = session.execute(key_insert_query, {'name': key_name}).inserted_primary_key[0]
+
+            # Adds the AnnotationKey to the AnnotationKeySet
+            if session.execute(assoc_select_query, {'ksid': key_set.id, 'kid': key_id}).scalar() == 0:
+                session.execute(assoc_insert_query, {'annotation_key_set_id': key_set.id, 'annotation_key_id': key_id})
+
+            # Updates the annotation value
+            res = session.execute(anno_update_query, {'cid': candidate.id, 'kid': key_id, 'value': value})
+            if res.rowcount == 0 and value != 0:
+                session.execute(anno_insert_query, {'candidate_id': candidate.id, 'key_id': key_id, 'value': value})
+
+        # Else, if the key already exists in the database, we just update the annotation value
+        elif key_id is not None:
+            res = session.execute(anno_update_query, {'cid': candidate.id, 'kid': key_id, 'value': value})
+            if res.rowcount == 0 and value != 0:
+                session.execute(anno_insert_query, {'candidate_id': candidate.id, 'key_id': key_id, 'value': value})
+    
+    @staticmethod
+    def _worker(pid, idxs, candidate_set, generator, queue): 
+        #print "\tFeaturizer process_id={} {} items".format(pid, len(idxs))
+        outdict = {}
+        for i in idxs:
+            outdict[i] = []
+            for key_name, value in generator(candidate_set[i]):
+                outdict[i] += [(key_name, value)]
+        queue.put(outdict)
+        
+    
+    
+    def update(self, session, candidate_set, key_set, expand_key_set, f=None, num_procs=1):
         """
         Generates annotations for candidates in a candidate set and *adds* them to an existing annotation set,
         also adding the respective keys to the key set; returns a sparse matrix representation of the full
@@ -158,6 +205,62 @@ class AnnotationManager(object):
 
         anno_insert_query = self.annotation_cls.__table__.insert()
 
+        queries = [key_select_query,key_insert_query,
+                   assoc_select_query,assoc_insert_query,
+                   anno_update_query,anno_insert_query]
+
+        # single processor
+        if num_procs == 1:
+            #print "Using 1 process"
+            
+            for i, candidate in enumerate(candidate_set):
+                pb.bar(i)
+                for key_name, value in annotation_generator(candidate):
+                    self._insert_annotation_pairs(session, key_name, value, candidate, 
+                                                  key_set, expand_key_set, queries)
+            pb.close()
+            
+        else:
+            #print "Using {} processes".format(num_procs)
+            
+            candidates = []
+            for i, candidate in enumerate(candidate_set):
+                # HACK to force lazy loading
+                _ = candidate.__repr__()
+                candidates += [candidate]
+            
+            out_queue = Queue()
+            chunksize = int(math.ceil(len(candidates) / float(num_procs)))
+            procs = []
+
+            nums = range(0,len(candidates))
+            for i in range(num_procs):
+                p = Process(
+                            target=AnnotationManager._worker,
+                            args=(i, nums[chunksize * i:chunksize * (i + 1)],
+                                  candidates,
+                                  annotation_generator,
+                                  out_queue))
+                procs.append(p)
+                p.start()
+
+            resultdict = {}
+            for i in range(num_procs):
+                resultdict.update(out_queue.get())
+            
+            for p in procs:
+                p.join()
+                  
+            for i in sorted(resultdict):
+                pb.bar(i)
+                for key_name, value in resultdict[i]:
+                    self._insert_annotation_pairs(session, key_name, value, candidates[i], 
+                                                  key_set, expand_key_set, queries)
+            pb.close()
+
+        session.commit()
+        
+        '''
         # Generates annotations for CandidateSet
         for i, candidate in enumerate(candidate_set):
             pb.bar(i)
@@ -190,7 +293,8 @@ class AnnotationManager(object):
                         session.execute(anno_insert_query, {'candidate_id': candidate.id, 'key_id': key_id, 'value': value})
         pb.close()
         session.commit()
-
+        '''
+        
         print "Loading sparse %s matrix..." % self.annotation_cls.__name__
         return self.load(session, candidate_set, key_set)
 
