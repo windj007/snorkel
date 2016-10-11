@@ -98,27 +98,32 @@ def corenlp_to_xmltree(s, prune_root=True):
   return XMLTree(root, words=s['words'])
 
 def corenlp_to_xmltree_sub(s, dep_parents, rid=0):
-  i = rid - 1
-  attrib = {}
-  N = len(dep_parents)
-
-  # Add all attributes that have the same shape as dep_parents
-  if i >= 0:
-    for k,v in filter(lambda t : type(t[1]) == list and len(t[1]) == N, s.iteritems()):
-      if v[i] is not None:
-        content = v[i].encode('ascii','ignore') if hasattr(v[i], 'encode') else str(v[i])
-        attrib[singular(k)] = ''.join(c for c in content if ord(c) < 128)
-
-    # Add word_idx if not present
-    if 'word_idx' not in attrib:
-      attrib['word_idx'] = str(i)
-
-  # Build tree recursively
-  root = et.Element('node', attrib=attrib)
-  for i,d in enumerate(dep_parents):
-    if d == rid:
-      root.append(corenlp_to_xmltree_sub(s, dep_parents, i+1))
-  return root
+  try:
+      i = rid - 1
+      attrib = {}
+      N = len(dep_parents)
+    
+      # Add all attributes that have the same shape as dep_parents
+      if i >= 0:
+        for k,v in filter(lambda t : type(t[1]) == list and len(t[1]) == N, s.iteritems()):
+          if v[i] is not None:
+            content = v[i].encode('ascii','ignore') if hasattr(v[i], 'encode') else str(v[i])
+            attrib[singular(k)] = ''.join(c for c in content if ord(c) < 128)
+    
+        # Add word_idx if not present
+        if 'word_idx' not in attrib:
+          attrib['word_idx'] = str(i)
+    
+      # Build tree recursively
+      root = et.Element('node', attrib=attrib)
+      for i,d in enumerate(dep_parents):
+        if d == rid:
+          root.append(corenlp_to_xmltree_sub(s, dep_parents, i+1))
+      return root
+  
+  except:
+      return et.Element('node', attrib={})
+      
 
 def singular(s):
   """Get singular form of word s (crudely)"""
