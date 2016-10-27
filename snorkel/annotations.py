@@ -144,13 +144,14 @@ class AnnotationManager(object):
                 session.execute(anno_insert_query, {'candidate_id': candidate.id, 'key_id': key_id, 'value': value})
     
     @staticmethod
-    def _worker(pid, idxs, candidate_set, generator, queue): 
-        #print "\tFeaturizer process_id={} {} items".format(pid, len(idxs))
+    def _worker(pid, idxs, candidate_set, generator, queue):
         outdict = {}
-        for i in idxs:
+        for i,cand in zip(idxs,candidate_set):
             outdict[i] = []
-            for key_name, value in generator(candidate_set[i]):
+            for key_name, value in generator(cand):
                 outdict[i] += [(key_name, value)]
+            #for key_name, value in generator(candidate_set[i]):
+            #    outdict[i] += [(key_name, value)]
         queue.put(outdict)
         
     
@@ -209,10 +210,11 @@ class AnnotationManager(object):
                    assoc_select_query,assoc_insert_query,
                    anno_update_query,anno_insert_query]
 
+        print "Using {} processes...".format(num_procs)
+
         # single processor
         if num_procs == 1:
-            #print "Using 1 process"
-            
+
             for i, candidate in enumerate(candidate_set):
                 pb.bar(i)
                 for key_name, value in annotation_generator(candidate):
@@ -221,8 +223,8 @@ class AnnotationManager(object):
             pb.close()
             
         else:
-            #print "Using {} processes".format(num_procs)
-            
+
+            # create candidate blocks
             candidates = []
             for i, candidate in enumerate(candidate_set):
                 # HACK to force lazy loading
@@ -233,12 +235,14 @@ class AnnotationManager(object):
             chunksize = int(math.ceil(len(candidates) / float(num_procs)))
             procs = []
 
+            print "Blocksize = {}".format(chunksize)
+
             nums = range(0,len(candidates))
             for i in range(num_procs):
                 p = Process(
                             target=AnnotationManager._worker,
                             args=(i, nums[chunksize * i:chunksize * (i + 1)],
-                                  candidates,
+                                  [candidates[j] for j in nums[chunksize * i:chunksize * (i + 1)]],
                                   annotation_generator,
                                   out_queue))
                 procs.append(p)
