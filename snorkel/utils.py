@@ -93,7 +93,7 @@ def matrix_conflicts(L):
     return np.ravel(np.where(L_abs.sum(axis=1) != sparse_abs(L.sum(axis=1)), 1, 0).T * L_abs / float(L.shape[0]))
 
 
-def matrix_accuracy(L, G):
+def matrix_accuracy_v1(L, G):
     """
     Given an N x M matrix where L_{i,j} is the label given by the jth LF to the ith candidate
     and a set of gold candidates:
@@ -119,6 +119,26 @@ def matrix_accuracy(L, G):
     non_zero_cols = (L.toarray() != 0).sum(axis=0) # count non-zero elements of each col
     accuracy = np.divide(np.sum(correct_labels, axis=0), non_zero_cols)
     return np.ravel(accuracy)
+
+
+
+
+def matrix_accuracy(L, labels):
+    """
+    Given an N x M matrix where L_{i,j} is the label given by the jth LF to the ith candidate
+    and an N x 1 vector where v_{i} is the gold label given to the ith candidate:
+    Return the **fraction of candidates that each LF covered and agreed with the gold labels**
+    """
+    correct = np.zeros(L.shape[1])
+    labeled = np.zeros(L.shape[1])
+    for i, j in zip(*L.nonzero()):
+        labeled[j] += 1
+        if L[i,j] == labels[i]:
+            correct[j] += 1
+    return correct / labeled
+
+
+
 
 
 def get_as_dict(x):
