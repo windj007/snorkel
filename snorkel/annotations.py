@@ -10,6 +10,18 @@ from sqlalchemy.orm.session import object_session
 from multiprocessing import Process, Queue
 import math
 
+import os
+import sys
+import logging
+import logging.handlers
+
+logger = logging.getLogger("%s_%s" % (os.getpid(), "session.log") )
+logger.setLevel(logging.DEBUG)
+socketHandler = logging.handlers.SocketHandler('localhost',
+                    logging.handlers.DEFAULT_TCP_LOGGING_PORT)
+logger.addHandler(socketHandler)
+
+
 class csr_AnnotationMatrix(sparse.csr_matrix):
     """
     An extension of the scipy.sparse.csr_matrix class for holding sparse annotation matrices
@@ -162,16 +174,26 @@ class AnnotationManager(object):
     
     @staticmethod
     def _worker(pid, idxs, candidate_set, generator, queue):
-        outdict = {}
-        for i,cand in zip(idxs,candidate_set):
-            outdict[i] = []
-            for key_name, value in generator(cand):
-                outdict[i] += [(key_name, value)]
-            #for key_name, value in generator(candidate_set[i]):
-            #    outdict[i] += [(key_name, value)]
-        queue.put(outdict)
+        '''Assume linux write/copy semantics'''
+        try:
+            outdict = {}
+            for i in range(*idxs):
+                outdict[i] = []
+                for key_name, value in generator(candidate_set[i]):
+                    outdict[i].append((key_name, value))
+            queue.put(outdict)
+        except Exception as e:
+            logger.critical("Worker [{}] FATAL ERROR {}".format(pid,e))
+        logger.debug("Worker [{}] finished".format(pid))
+
         
-    
+    #def _worker(pid, idxs, candidate_set, generator, queue):
+    #    outdict = {}
+    #    for i,cand in zip(idxs,candidate_set):
+    #        outdict[i] = []
+    #        for key_name, value in generator(cand):
+    #            outdict[i] += [(key_name, value)]
+    #    queue.put(outdict)
     
     def update(self, session, candidate_set, key_set, expand_key_set, f=None, num_procs=1):
         """
@@ -252,14 +274,19 @@ class AnnotationManager(object):
             chunksize = int(math.ceil(len(candidates) / float(num_procs)))
             procs = []
 
-            print "Blocksize = {}".format(chunksize)
+            print "Blocksize = {} / {}".format(chunksize,len(candidates))
 
-            nums = range(0,len(candidates))
+            num_candidates = len(candidates)
             for i in range(num_procs):
+                block = [chunksize * i, chunksize * (i + 1)]
+
+                if i == num_procs - 1:
+                    block[-1] = num_candidates
+
                 p = Process(
                             target=AnnotationManager._worker,
-                            args=(i, nums[chunksize * i:chunksize * (i + 1)],
-                                  [candidates[j] for j in nums[chunksize * i:chunksize * (i + 1)]],
+                            args=(i, block,
+                                  candidates,
                                   annotation_generator,
                                   out_queue))
                 procs.append(p)
@@ -271,7 +298,9 @@ class AnnotationManager(object):
             
             for p in procs:
                 p.join()
-                  
+
+            print "Loading results..."
+            # insert into session
             for i in sorted(resultdict):
                 pb.bar(i)
                 for key_name, value in resultdict[i]:
