@@ -1,6 +1,7 @@
 from .utils import ProgressBar
 from multiprocessing import Process, Queue, JoinableQueue
 from Queue import Empty
+import sys
 
 
 class UDF(Process):
@@ -59,9 +60,13 @@ class UDFRunnerMP(object):
         for udf in self.udfs:
             udf.start()
 
-        # TODO: Need to join on them committing their sessions instead??
-        x_queue.join()
-        
+        # Join on the processes all finishing!
+        nU = len(self.udfs)
+        for i, udf in enumerate(self.udfs):
+            udf.join()
+            sys.stdout.write("\r%s / %s threads done." % (i+1, nU))
+        print "\n"
+
 
 class UDFRunner(object):
     """Class to run a single UDF single-threaded"""
