@@ -2,14 +2,19 @@ from .utils import ProgressBar
 from multiprocessing import Process, Queue, JoinableQueue
 from Queue import Empty
 import sys
+from .models.meta import new_sessionmaker
 
 
 class UDF(Process):
-    def __init__(self, session=None, x_queue=None, y_set=None):
+    def __init__(self, x_queue=None, y_set=None):
         Process.__init__(self)
-        self.session = session
         self.x_queue = x_queue
         self.y_set   = y_set
+
+        # Each UDF starts its own Engine
+        # See http://docs.sqlalchemy.org/en/latest/core/pooling.html#using-connection-pools-with-multiprocessing
+        SnorkelSession = new_sessionmaker()
+        self.session   = SnorkelSession()
 
     def run(self):
         """
@@ -38,10 +43,9 @@ class UDF(Process):
 
 class UDFRunnerMP(object):
     """Class to run UDFs in parallel using simple queue-based multiprocessing setup"""
-    def __init__(self, udf_class, session=None):
+    def __init__(self, udf_class):
         self.udf_class = udf_class
         self.udfs      = []
-        self.session   = session
 
     def run(self, xs, parallelism=1, y_set=None):
 
@@ -51,9 +55,8 @@ class UDFRunnerMP(object):
             x_queue.put(x)
 
         # Start UDF Processes
-        # TODO: What session to use?
         for i in range(parallelism):
-            udf = self.udf_class(session=self.session, x_queue=x_queue, y_set=y_set)
+            udf = self.udf_class(x_queue=x_queue, y_set=y_set)
             self.udfs.append(udf)
 
         # Start the UDF processes, and then join on their completion
