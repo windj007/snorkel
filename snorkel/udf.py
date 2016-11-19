@@ -5,6 +5,8 @@ import sys
 from .models.meta import new_sessionmaker
 
 
+Q_GET_TIMEOUT = 5
+
 class UDF(Process):
     def __init__(self, x_queue=None, y_queue=None):
         """
@@ -29,13 +31,15 @@ class UDF(Process):
         """
         while True:
             try:
-                x = self.x_queue.get(False)
+                x = self.x_queue.get(True, Q_GET_TIMEOUT)
                 for y in self.apply(x):
                     self.session.add(y)
 
                     # TODO: Why does this cause it to hang??
                     if self.y_queue is not None:
                         self.y_queue.put(y)
+
+                # Mark the object as processed
                 self.x_queue.task_done()
             except Empty:
                 break
@@ -60,6 +64,7 @@ class UDFRunnerMP(object):
         y_queue = Queue() if y_set is not None else None
 
         # Fill a JoinableQueue with input objects
+        # TODO: For low-memory scenarios, we'd want to limit total queue size here
         x_queue = JoinableQueue()
         for x in xs:
             x_queue.put(x)
@@ -95,9 +100,8 @@ class UDFRunnerMP(object):
 
 class UDFRunner(object):
     """Class to run a single UDF single-threaded"""
-    def __init__(self, udf, session=None):
-        self.udf     = udf
-        self.session = session
+    def __init__(self, udf_class):
+        self.udf = udf_class()
 
     def run(self, xs, y_set=None, max_n=None):
         
@@ -122,11 +126,11 @@ class UDFRunner(object):
                 if y_set is not None:
                     add_to_collection(y_set, y)
                 else:
-                    self.session.add(y)
+                    self.udf.session.add(y)
 
         # Commit
-        if self.session is not None:
-            self.session.commit()
+        if self.udf.session is not None:
+            self.udf.session.commit()
 
         # Close the progress bar if applicable
         if N > 0:

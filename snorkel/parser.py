@@ -169,7 +169,7 @@ PTB = {'-RRB-': ')', '-LRB-': '(', '-RCB-': '}', '-LCB-': '{',
          '-RSB-': ']', '-LSB-': '['}
 
 class CoreNLPHandler:
-    def __init__(self, tok_whitespace=False):
+    def __init__(self, tok_whitespace=False, disable_ptb=False):
         # http://stanfordnlp.github.io/CoreNLP/corenlp-server.html
         # Spawn a StanfordCoreNLPServer process that accepts parsing requests at an HTTP port.
         # Kill it when python exits.
@@ -184,8 +184,25 @@ class CoreNLPHandler:
         self.server_pid = Popen(cmd, shell=True).pid
         atexit.register(self._kill_pserver)
         props = "\"tokenize.whitespace\": \"true\"," if self.tok_whitespace else ""
-        self.endpoint = 'http://127.0.0.1:%d/?properties={%s"annotators": "tokenize,ssplit,pos,lemma,depparse,ner", "outputFormat": "json"}' % (self.port, props)
 
+        # disable all the penn tree bank replacement tokens
+        # nlp.stanford.edu/software/tokenizer.html
+        tokenizer_options = {"normalizeParentheses":False,
+                             "normalizeCurrency":False,
+                             "normalizeFractions":False,
+                             "normalizeParentheses":False,
+                             "normalizeOtherBrackets":False,
+                             "asciiQuotes":False,
+                             "latexQuotes":False,
+                             "ptb3Ellipsis":False,
+                             "ptb3Dashes":False,
+                             "escapeForwardSlashAsterisk":False,
+                             "strictTreebank3":True}
+
+        opts = ["{}={}".format(key, str(value).lower()) for key, value in tokenizer_options.items()]
+        tokenizer_options = "," + '"tokenize.options":"{}"'.format(",".join(opts)) if disable_ptb else ""
+        self.endpoint = 'http://127.0.0.1:%d/?properties={%s"annotators": "tokenize,ssplit,pos,lemma,depparse,ner", "outputFormat": "json" %s}' % (self.port, props, tokenizer_options)
+                  
         # Following enables retries to cope with CoreNLP server boot-up latency
         # See: http://stackoverflow.com/a/35504626
         from requests.packages.urllib3.util.retry import Retry
@@ -245,13 +262,9 @@ class CoreNLPHandler:
             parts['dep_labels'] = sort_X_on_Y(dep_lab, dep_order)
 
             # NOTE: We have observed weird bugs where CoreNLP diverges from raw document text (see Issue #368)
-            # In these cases we go with CoreNLP so as not to cause downstream issues but throw a warning
             doc_text = text[block['tokens'][0]['characterOffsetBegin'] : block['tokens'][-1]['characterOffsetEnd']]
             L = len(block['tokens'])
-            parts['text'] = ''.join(t['originalText'] + t['after'] if i < L - 1 else t['originalText'] for i,t in enumerate(block['tokens']))
-            if not diverged and doc_text != parts['text']:
-                diverged = True
-                #warnings.warn("CoreNLP parse has diverged from raw document text!")
+            parts['text'] = doc_text
             parts['position'] = position
             
             # replace PennTreeBank tags with original forms
@@ -273,8 +286,8 @@ class CoreNLPHandler:
 
 
 class SentenceParser(object):
-    def __init__(self, tok_whitespace=False):
-        self.corenlp_handler = CoreNLPHandler(tok_whitespace=tok_whitespace)
+    def __init__(self, tok_whitespace=False, disable_ptb=False):
+        self.corenlp_handler = CoreNLPHandler(tok_whitespace=tok_whitespace, disable_ptb=disable_ptb)
 
     def parse(self, doc, text):
         """Parse a raw document as a string into a list of sentences"""
