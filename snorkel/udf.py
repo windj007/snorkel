@@ -6,10 +6,16 @@ from .models.meta import new_sessionmaker
 
 
 class UDF(Process):
-    def __init__(self, x_queue=None, y_set=None):
+    def __init__(self, x_queue=None, y_queue=None):
+        """
+        x_queue: A Queue of input objects to process; primarily for running in parallel
+        y_queue: A Queue to collect output objects to be added to a many-to-many set
+            * NOTE: This latter queue will no longer be needed when we get rid of many-to-many sets in v0.5...
+        """
         Process.__init__(self)
+        self.daemon  = True
         self.x_queue = x_queue
-        self.y_set   = y_set
+        self.y_queue = y_queue
 
         # Each UDF starts its own Engine
         # See http://docs.sqlalchemy.org/en/latest/core/pooling.html#using-connection-pools-with-multiprocessing
@@ -25,16 +31,16 @@ class UDF(Process):
             try:
                 x = self.x_queue.get(False)
                 for y in self.apply(x):
-                    if self.y_set is not None:
-                        self.y_set.put(y)
-                    else:
-                        self.session.add(y)
+                    self.session.add(y)
+
+                    # TODO: Why does this cause it to hang??
+                    if self.y_queue is not None:
+                        self.y_queue.put(y)
                 self.x_queue.task_done()
             except Empty:
                 break
-        if self.session is not None:
-            self.session.commit()
-            self.session.close()
+        self.session.commit()
+        self.session.close()
     
     def apply(self, x):
         """This function takes in an object, and returns a generator / set / list"""
@@ -49,6 +55,10 @@ class UDFRunnerMP(object):
 
     def run(self, xs, parallelism=1, y_set=None):
 
+        # If y_set is provided, we need to collect the y objects and add them to the set on this thread...
+        # Note: another reason to get rid of many-to-many sets asap!
+        y_queue = Queue() if y_set is not None else None
+
         # Fill a JoinableQueue with input objects
         x_queue = JoinableQueue()
         for x in xs:
@@ -56,7 +66,7 @@ class UDFRunnerMP(object):
 
         # Start UDF Processes
         for i in range(parallelism):
-            udf = self.udf_class(x_queue=x_queue, y_set=y_set)
+            udf = self.udf_class(x_queue=x_queue, y_queue=y_queue)
             self.udfs.append(udf)
 
         # Start the UDF processes, and then join on their completion
@@ -68,7 +78,19 @@ class UDFRunnerMP(object):
         for i, udf in enumerate(self.udfs):
             udf.join()
             sys.stdout.write("\r%s / %s threads done." % (i+1, nU))
+            sys.stdout.flush()
         print "\n"
+        sys.stdout.flush()
+
+        # Collect the output objects and add to the set
+        if y_set is not None:
+            while True:
+                try:
+                    y_set.append(y_queue.get(False))
+                except Empty:
+                    break
+            session.commit()
+            return y_set
 
 
 class UDFRunner(object):
@@ -98,10 +120,7 @@ class UDFRunner(object):
             # Apply the UDF and add to either the set or the session
             for y in self.udf.apply(x):
                 if y_set is not None:
-                    if hasattr(y_set, 'append'):
-                        y_set.append(y)
-                    else:
-                        y_set.add(y)
+                    add_to_collection(y_set, y)
                 else:
                     self.session.add(y)
 
@@ -113,3 +132,16 @@ class UDFRunner(object):
         if N > 0:
             pb.bar(N)
             pb.close()
+
+
+def add_to_collection(c, x):
+    """Adds, appends or puts x into c"""
+    if hasattr(c, 'put'):
+        c.put(x)
+    elif hasattr(c, 'add'):
+        c.add(x)
+    elif hasattr(c, 'append'):
+        c.append(x)
+    else:
+        raise AttributeError("No put/add/append attribute found.")
+
