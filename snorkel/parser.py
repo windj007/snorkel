@@ -168,8 +168,12 @@ class XMLMultiDocParser(DocParser):
 PTB = {'-RRB-': ')', '-LRB-': '(', '-RCB-': '}', '-LCB-': '{',
          '-RSB-': ']', '-LSB-': '['}
 
+CORE_ANNOTATORS = ['tokenize', 'ssplit']
+
 class CoreNLPHandler:
-    def __init__(self, tok_whitespace=False, disable_ptb=False):
+    def __init__(self, tok_whitespace=False, disable_ptb=False, annotators=['pos', 'lemma', 'depparse', 'ner']):
+        self.annotators = CORE_ANNOTATORS + annotators
+
         # http://stanfordnlp.github.io/CoreNLP/corenlp-server.html
         # Spawn a StanfordCoreNLPServer process that accepts parsing requests at an HTTP port.
         # Kill it when python exits.
@@ -201,7 +205,7 @@ class CoreNLPHandler:
 
         opts = ["{}={}".format(key, str(value).lower()) for key, value in tokenizer_options.items()]
         tokenizer_options = "," + '"tokenize.options":"{}"'.format(",".join(opts)) if disable_ptb else ""
-        self.endpoint = 'http://127.0.0.1:%d/?properties={%s"annotators": "tokenize,ssplit,pos,lemma,depparse,ner", "outputFormat": "json" %s}' % (self.port, props, tokenizer_options)
+        self.endpoint = 'http://127.0.0.1:%d/?properties={%s"annotators": "%s", "outputFormat": "json" %s}' % (self.port, props, ','.join(self.annotators), tokenizer_options)
                   
         # Following enables retries to cope with CoreNLP server boot-up latency
         # See: http://stackoverflow.com/a/35504626
@@ -247,19 +251,24 @@ class CoreNLPHandler:
             dep_order, dep_par, dep_lab = [], [], []
             for tok, deps in zip(block['tokens'], block['basic-dependencies']):
                 parts['words'].append(tok['word'])
-                parts['lemmas'].append(tok['lemma'])
-                parts['pos_tags'].append(tok['pos'])
-                parts['ner_tags'].append(tok['ner'])
+                if 'lemma' in self.annotators:
+                    parts['lemmas'].append(tok['lemma'])
+                if 'pos' in self.annotators:
+                    parts['pos_tags'].append(tok['pos'])
+                if 'ner' in self.annotators:
+                    parts['ner_tags'].append(tok['ner'])
                 parts['char_offsets'].append(tok['characterOffsetBegin'])
-                dep_par.append(deps['governor'])
-                dep_lab.append(deps['dep'])
-                dep_order.append(deps['dependent'])
+                if 'depparse' in self.annotators:
+                    dep_par.append(deps['governor'])
+                    dep_lab.append(deps['dep'])
+                    dep_order.append(deps['dependent'])
 
             # make char_offsets relative to start of sentence
             abs_sent_offset = parts['char_offsets'][0]
             parts['char_offsets'] = [p - abs_sent_offset for p in parts['char_offsets']]
-            parts['dep_parents'] = sort_X_on_Y(dep_par, dep_order)
-            parts['dep_labels'] = sort_X_on_Y(dep_lab, dep_order)
+            if 'depparse' in self.annotators:
+                parts['dep_parents'] = sort_X_on_Y(dep_par, dep_order)
+                parts['dep_labels'] = sort_X_on_Y(dep_lab, dep_order)
 
             # NOTE: We have observed weird bugs where CoreNLP diverges from raw document text (see Issue #368)
             doc_text = text[block['tokens'][0]['characterOffsetBegin'] : block['tokens'][-1]['characterOffsetEnd']]
@@ -269,7 +278,8 @@ class CoreNLPHandler:
             
             # replace PennTreeBank tags with original forms
             parts['words'] = [PTB[w] if w in PTB else w for w in parts['words']]
-            parts['lemmas'] = [PTB[w.upper()] if w.upper() in PTB else w for w in parts['lemmas']]
+            if 'lemma' in self.annotators:
+                parts['lemmas'] = [PTB[w.upper()] if w.upper() in PTB else w for w in parts['lemmas']]
 
             # Link the sentence to its parent document object
             parts['document'] = document
