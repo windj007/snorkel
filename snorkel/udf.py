@@ -53,9 +53,10 @@ class UDF(Process):
 
 class UDFRunnerMP(object):
     """Class to run UDFs in parallel using simple queue-based multiprocessing setup"""
-    def __init__(self, udf_class):
-        self.udf_class = udf_class
-        self.udfs      = []
+    def __init__(self, udf_class, **udf_kwargs):
+        self.udf_class  = udf_class
+        self.udf_kwargs = udf_kwargs
+        self.udfs       = []
 
     def run(self, xs, parallelism=1, y_set=None):
 
@@ -71,7 +72,7 @@ class UDFRunnerMP(object):
 
         # Start UDF Processes
         for i in range(parallelism):
-            udf = self.udf_class(x_queue=x_queue, y_queue=y_queue)
+            udf = self.udf_class(x_queue=x_queue, y_queue=y_queue, **self.udf_kwargs)
             self.udfs.append(udf)
 
         # Start the UDF processes, and then join on their completion
