@@ -362,16 +362,21 @@ class VisualLinker():
         self.display_boxes(boxes, page_num=page_num, display=display, alternate_colors=True)
 
     def display_words(self, target=None, page_num=1, display=True):
+        """
+        Displays bounding boxes corresponding to the list of words provided
+        as target.
+        """
         boxes = []
         for phrase in self.document.phrases:
             for i, word in enumerate(phrase.words):
-                if target is None or word == target:
-                    boxes.append((
-                        phrase.page[i],
-                        phrase.top[i],
-                        phrase.left[i],
-                        phrase.bottom[i],
-                        phrase.right[i]))
+                for target_word in target:
+                    if target_word is None or word == target_word:
+                        boxes.append((
+                            phrase.page[i],
+                            phrase.top[i],
+                            phrase.left[i],
+                            phrase.bottom[i],
+                            phrase.right[i]))
         self.display_boxes(boxes, page_num=page_num, display=display)
 
     def pdf_to_img(self, page_num):
