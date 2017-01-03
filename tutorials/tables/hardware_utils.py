@@ -68,7 +68,8 @@ def count_hardware_labels(candidates, filename, attrib, attrib_class):
 
 
 def load_hardware_labels(session, label_set_name, annotation_key_name, candidates, filename, attrib):
-    gold_dict = get_gold_dict(filename, attribute=attrib)
+    #modified for the perf vs scale test.
+    gold_dict = get_gold_dict(filename, doc_on=True, part_on=True, val_on=False)
     candidate_set   = create_or_fetch(session, CandidateSet, label_set_name)
     annotation_key  = create_or_fetch(session, AnnotationKey, annotation_key_name)
     key_set         = create_or_fetch(session, AnnotationKeySet, annotation_key_name)
