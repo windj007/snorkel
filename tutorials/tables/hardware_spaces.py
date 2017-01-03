@@ -295,7 +295,8 @@ class OmniNgramsVolt(OmniNgrams):
 
 spaces = {}
 
-spaces['part'] = OmniNgramsPart(parts_by_doc=None, n_max=3)
+# was n_max=3, switching to n_max=1 for performance vs scale test
+spaces['part'] = OmniNgramsPart(parts_by_doc=None, n_max=1)
 spaces['stg_temp_max'] = OmniNgramsTemp(n_max=2)
 spaces['stg_temp_min'] = OmniNgramsTemp(n_max=2)
 spaces['polarity'] = OmniNgrams(n_max=1)

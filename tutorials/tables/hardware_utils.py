@@ -83,8 +83,8 @@ def load_hardware_labels(session, label_set_name, annotation_key_name, candidate
         pb.bar(i)
         doc = (c[0].parent.document.name).upper()
         part = (c[0].get_span()).upper()
-        val = (''.join(c[1].get_span().split())).upper()
-        if (doc, part, val) in gold_dict:
+        # val = (''.join(c[1].get_span().split())).upper()
+        if (doc, part) in gold_dict:
             candidate_set.append(c)
             session.add(Label(key=annotation_key, candidate=c, value=1))
     session.commit()

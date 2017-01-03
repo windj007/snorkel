@@ -21,17 +21,17 @@ def get_content_feats(candidate):
     if len(args) == 1:
         span = args[0]
         if span.is_lingual():
-            get_tdl_feats = compile_entity_feature_generator()
+            # get_tdl_feats = compile_entity_feature_generator()
             sent = get_as_dict(span.parent)
-            xmltree = corenlp_to_xmltree(sent)
+            # xmltree = corenlp_to_xmltree(sent)
             sidxs = range(span.get_word_start(), span.get_word_end() + 1)
             if len(sidxs) > 0:
                 # Add DDLIB entity features
                 for f in get_ddlib_feats(sent, sidxs):
                     yield 'DDL_' + f, DEF_VALUE
                 # Add TreeDLib entity features
-                for f in get_tdl_feats(xmltree.root, sidxs):
-                    yield 'TDL_' + f, DEF_VALUE
+                #for f in get_tdl_feats(xmltree.root, sidxs):
+                    #yield 'TDL_' + f, DEF_VALUE
         else:
             for f in get_word_feats(span):
                 yield 'BASIC_' + f, DEF_VALUE
