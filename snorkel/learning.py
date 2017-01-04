@@ -90,7 +90,7 @@ class NoiseAwareModel(object):
     def marginals(self, X):
         raise NotImplementedError()
 
-    def predict(self, X, b=0.5):
+    def predict(self, X, b=0.50):
         """Return numpy array of elements in {-1,0,1} based on predicted marginal probabilities."""
         return np.array([1 if p > b else -1 if p < b else 0 for p in self.marginals(X)])
 
@@ -260,7 +260,6 @@ class LogReg(NoiseAwareModel):
         * warm_starts:
         * tol:         For testing for SGD convergence, i.e. stopping threshold
         """
-        print "DP",training_marginals
         # First, we remove the rows (candidates) that have no LF coverage
         if training_marginals is not None:
             covered            = np.where(np.abs(training_marginals - 0.5) > 1e-3)[0]
@@ -337,9 +336,11 @@ class LogReg(NoiseAwareModel):
         self.w = w
 
     def marginals(self, X):
-        print "LogReg() Marginals", odds_to_prob(X.dot(self.w)).shape
-        print  odds_to_prob(X.dot(self.w)).flatten()
         return odds_to_prob(X.dot(self.w))
+
+
+
+
 
 
 class LSTM(NoiseAwareModel):

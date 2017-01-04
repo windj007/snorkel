@@ -123,12 +123,12 @@ class Learner(object):
             X = sparse.hstack([X, np.ones((n, 1))], format='csr')
         return X
 
-    def train(self, lf_w0=5.0, feat_w0=0.0, **model_hyperparams):
+    def train(self, lf_w0=0.0, feat_w0=0.0, **model_hyperparams):
         """Train model: **as default, use "joint" approach**"""
         # Set the initial weights for LFs and feats
         w0 = np.concatenate([lf_w0*np.ones(self.m), feat_w0*np.ones(self.f)])
         w0 = np.append(w0, 0) if self.bias_term else w0
-
+        
         # Construct matrix X for "joint" approach
         self.X_train = self._set_model_X(self.L_train, self.F_train)
 
