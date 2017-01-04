@@ -1,5 +1,7 @@
 # Base Python
 from collections import OrderedDict
+import codecs
+import os.path
 
 # Scientific modules
 import numpy as np
@@ -26,6 +28,9 @@ class LSTMModel(object):
     self.lstm_Y = None
     self.word_dict = None
     self.marginals = None
+    self.load_emb = None
+    self.emb_path = None
+    self.load_word_dict = None
 
   def ortho_weight(self):
     u, s, v = np.linalg.svd(np.random.randn(self.lstm_settings['dim'], self.lstm_settings['dim']))
@@ -36,6 +41,14 @@ class LSTMModel(object):
     # embedding
     randn = np.random.rand(self.lstm_settings['word_size'], self.lstm_settings['dim'])
     params['Wemb'] = (0.01 * randn).astype(config.floatX)
+    if self.load_emb and os.path.isfile(self.emb_path):
+        c_found=0
+        for line in codecs.open(self.emb_path, 'r', 'utf-8'):
+            line = line.rstrip().split()
+            if len(line) == self.dim + 1 and line[0] in self.word_dict:
+                params['Wemb'][self.word_dict[line[0]]] = np.array([float(x) for x in line[1:]]).astype(config.floatX)
+                c_found=c_found+1
+        print "replaced", c_found, "/", len(self.word_dict)
     # lstm
     params['lstm_W'] = np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], axis = 1)
     params['lstm_U'] = np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], axis = 1)
@@ -354,10 +367,14 @@ class LSTMModel(object):
     self.epoch = kwargs.get('n_iter', 300)
     self.maxlen = kwargs.get('maxlen', 100)
     self.dropout = kwargs.get('dropout', True)
-    self.verbose=kwargs.get('verbose', True)
-
+    self.verbose = kwargs.get('verbose', True)
+    self.load_emb = kwargs.get('load_emb', False)
+    self.emb_path = kwargs.get('emb_path', None)
+    self.load_word_dict = kwargs.get('load_word_dict', None)
     self.get_word_dict(contain_mention=self.contain_mention, word_window_length=self.word_window_length, \
                        ignore_case=self.ignore_case)
+    if self.load_word_dict is not None:
+        self.word_dict = self.load_word_dict
     self.lstm_X = self.map_word_to_id(self.training_set, contain_mention=self.contain_mention, \
                                       word_window_length=self.word_window_length, ignore_case=self.ignore_case)
     self.lstm(dim=self.dim, batch_size=self.batch_size, learning_rate=self.learning_rate, epoch=self.epoch, \

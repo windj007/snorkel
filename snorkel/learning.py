@@ -90,9 +90,13 @@ class NoiseAwareModel(object):
     def marginals(self, X):
         raise NotImplementedError()
 
+<<<<<<< HEAD
     def predict(self, X, b=0.50):
+=======
+    def predict(self, X, thresh=0.5):
+>>>>>>> 581d994d6bf924d63ff77c90a0e525bf4a410a38
         """Return numpy array of elements in {-1,0,1} based on predicted marginal probabilities."""
-        return np.array([1 if p > b else -1 if p < b else 0 for p in self.marginals(X)])
+        return np.array([1 if p > thresh else -1 if p < thresh else 0 for p in self.marginals(X)])
 
 
 class SciKitLR(NoiseAwareModel):

@@ -46,7 +46,7 @@ class CandidateExtractorProcess(Process):
     def run(self):
         while True:
             try:
-                context = self.contexts_in.get(False)
+                context = self.contexts_in.get(True, 10)
                 for candidate in self.matcher.apply(self.candidate_space.apply(context)):
                     self.candidates_out.put(candidate, False)
                 self.contexts_in.task_done()

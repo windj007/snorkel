@@ -168,10 +168,14 @@ class GridSearch(object):
         for param_vals in product(*self.param_val_ranges):
 
             # Set the new hyperparam configuration to test
+            thresh = None
             for pn, pv in zip(self.param_names, param_vals):
-                model_hyperparams[pn] = pv
+                if pn == 'thresh':
+                    thresh = pv
+                else:
+                    model_hyperparams[pn] = pv
             print "=" * 60
-            print "Testing %s" % ', '.join(["%s = %0.2e" % (pn,pv) for pn,pv in zip(self.param_names, param_vals)])
+            print "Testing %s" % ', '.join(["%s=%s" % (pn,pv) for pn,pv in zip(self.param_names, param_vals)])
             print "=" * 60
 
             # Train the model
@@ -180,7 +184,10 @@ class GridSearch(object):
             self.learner.train(**model_hyperparams)
 
             # Test the model
-            scores   = self.learner.test(cv_candidates, cv_gold_labels, display=False, return_vals=True)
+            if thresh is not None:
+                scores = self.learner.test(cv_candidates, cv_gold_labels, display=False, return_vals=True, thresh=thresh)
+            else:
+                scores = self.learner.test(cv_candidates, cv_gold_labels, display=False, return_vals=True)
             p, r, f1 = scores[:3]
             run_stats.append(list(param_vals) + [p, r, f1])
             if f1 > f1_opt:
