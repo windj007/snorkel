@@ -222,7 +222,7 @@ class RegexMatch(NgramMatcher):
 
         # Compile regex matcher
         # NOTE: Enforce full span matching by ensuring that regex ends with $!
-        self.rgx = self.rgx if self.rgx.endswith('$') else self.rgx + r'$'
+        self.rgx = self.rgx if self.rgx.endswith('$') or self.opts.get('partial_match', True) else self.rgx + r'$'
         self.r = re.compile(self.rgx, flags=re.I if self.ignore_case else 0)
 
     def _f(self, c):
