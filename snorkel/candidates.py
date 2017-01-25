@@ -214,9 +214,10 @@ class Ngrams(CandidateSpace):
     Defines the space of candidates as all n-grams (n <= n_max) in a Sentence _x_,
     indexing by **character offset**.
     """
-    def __init__(self, n_max=5, split_tokens=['-', '/']):
+    def __init__(self, n_max=5, n_min = 1, split_tokens=['-', '/']):
         CandidateSpace.__init__(self)
         self.n_max     = n_max
+        self.n_min     = n_min
         self.split_rgx = r'('+r'|'.join(split_tokens)+r')' if split_tokens and len(split_tokens) > 0 else None
     
     def apply(self, context):
@@ -227,7 +228,7 @@ class Ngrams(CandidateSpace):
         # Loop over all n-grams in **reverse** order (to facilitate longest-match semantics)
         L    = len(offsets)
         seen = set()
-        for l in range(1, self.n_max+1)[::-1]:
+        for l in range(self.n_min, self.n_max+1)[::-1]:
             for i in range(L-l+1):
                 w     = context.words[i+l-1]
                 start = offsets[i]
