@@ -240,6 +240,23 @@ def corenlp_make_endpoint(server = '127.0.0.1', port = 12345, tok_whitespace = F
             % (server, port, props)
 
 
+class CoreNLPRunner(object):
+    def __init__(self, port = 12345):
+        self.port = port
+        loc = os.path.join(os.environ['SNORKELHOME'], 'parser')
+        cmd = ['java -Xmx4g -cp "%s/*" edu.stanford.nlp.pipeline.StanfordCoreNLPServer --port %d --timeout %d > /dev/null'
+               % (loc, self.port, 600000)]
+        self.server_pid = Popen(cmd, shell=True).pid
+        atexit.register(self._kill_pserver)
+
+    def _kill_pserver(self):
+        if self.server_pid is not None:
+            try:
+                os.kill(self.server_pid, signal.SIGTERM)
+            except:
+                sys.stderr.write('Could not kill CoreNLP server. Might already got killt...\n')
+
+
 class CoreNLPHandler:
     def __init__(self, tok_whitespace=False):
         # http://stanfordnlp.github.io/CoreNLP/corenlp-server.html
@@ -250,11 +267,8 @@ class CoreNLPHandler:
         # So it doesn't load e.g. coref models and the total (on-demand) initialization takes only 7 sec.
         self.port = 12345
         self.tok_whitespace = tok_whitespace
-        loc = os.path.join(os.environ['SNORKELHOME'], 'parser')
-        cmd = ['java -Xmx4g -cp "%s/*" edu.stanford.nlp.pipeline.StanfordCoreNLPServer --port %d --timeout %d > /dev/null'
-               % (loc, self.port, 600000)]
-        self.server_pid = Popen(cmd, shell=True).pid
-        atexit.register(self._kill_pserver)
+
+        self.runner = CoreNLPRunner(port = self.port)
         self.endpoint = corenlp_make_endpoint('127.0.0.1', self.port, self.tok_whitespace)
 
         # Following enables retries to cope with CoreNLP server boot-up latency
@@ -276,12 +290,6 @@ class CoreNLPHandler:
         for sent in corenlp_parse_response(document, text, resp):
             yield sent
 
-    def _kill_pserver(self):
-        if self.server_pid is not None:
-            try:
-                os.kill(self.server_pid, signal.SIGTERM)
-            except:
-                sys.stderr.write('Could not kill CoreNLP server. Might already got killt...\n')
 
 
 class SentenceParser(object):
