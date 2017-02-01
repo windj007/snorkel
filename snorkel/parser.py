@@ -168,13 +168,16 @@ PTB = {'-RRB-': ')', '-LRB-': '(', '-RCB-': '}', '-LCB-': '{',
          '-RSB-': ']', '-LSB-': '['}
 
 
-def corenlp_make_request(request_maker, endpoint, text):
+def corenlp_make_request(request_maker, endpoint, text, **kwargs):
     """Parse a raw document as a string into a list of sentences"""
     if len(text.strip()) == 0:
         return
     if isinstance(text, unicode):
         text = text.encode('utf-8', 'error')
-    return request_maker.post(endpoint, data=text, allow_redirects=True)
+    return request_maker.post(endpoint,
+                              data=text,
+                              allow_redirects=True,
+                              **kwargs)
 
 
 def corenlp_parse_response(document, text, resp):
