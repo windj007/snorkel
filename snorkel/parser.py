@@ -168,7 +168,7 @@ PTB = {'-RRB-': ')', '-LRB-': '(', '-RCB-': '}', '-LCB-': '{',
          '-RSB-': ']', '-LSB-': '['}
 
 
-def corenlp_make_sync_request(request_maker, endpoint, text):
+def corenlp_make_request(request_maker, endpoint, text):
     """Parse a raw document as a string into a list of sentences"""
     if len(text.strip()) == 0:
         return
@@ -270,8 +270,11 @@ class CoreNLPHandler:
         self.requests_session.mount('http://', HTTPAdapter(max_retries=retries))
 
     def parse(self, document, text):
-        resp = corenlp_make_sync_request(self.requests_session, self.endpoint, text)
-        return corenlp_parse_response(document, text, resp)
+        resp = corenlp_make_request(self.requests_session, self.endpoint, text)
+        if resp is None:
+            return
+        for sent in corenlp_parse_response(document, text, resp):
+            yield sent
 
     def _kill_pserver(self):
         if self.server_pid is not None:
