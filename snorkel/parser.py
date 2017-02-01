@@ -167,6 +167,79 @@ class XMLMultiDocParser(DocParser):
 PTB = {'-RRB-': ')', '-LRB-': '(', '-RCB-': '}', '-LCB-': '{',
          '-RSB-': ']', '-LSB-': '['}
 
+
+def corenlp_make_sync_request(request_maker, endpoint, text):
+    """Parse a raw document as a string into a list of sentences"""
+    if len(text.strip()) == 0:
+        return
+    if isinstance(text, unicode):
+        text = text.encode('utf-8', 'error')
+    return request_maker.post(endpoint, data=text, allow_redirects=True)
+
+
+def corenlp_parse_response(document, text, resp):
+    text = text.decode('utf-8')
+    content = resp.content.strip()
+    if content.startswith("Request is too long"):
+        raise ValueError("File {} too long. Max character count is 100K.".format(document.name))
+    if content.startswith("CoreNLP request timed out"):
+        raise ValueError("CoreNLP request timed out on file {}.".format(document.name))
+    try:
+        blocks = json.loads(content, strict=False)['sentences']
+    except:
+        print "SKIPPED A MALFORMED SENTENCE!"
+        return
+    position = 0
+    diverged = False
+    for block in blocks:
+        parts = defaultdict(list)
+        dep_order, dep_par, dep_lab = [], [], []
+        for tok, deps in zip(block['tokens'], block['basic-dependencies']):
+            parts['words'].append(tok['word'])
+            parts['lemmas'].append(tok['lemma'])
+            parts['pos_tags'].append(tok['pos'])
+            parts['ner_tags'].append(tok['ner'])
+            parts['char_offsets'].append(tok['characterOffsetBegin'])
+            dep_par.append(deps['governor'])
+            dep_lab.append(deps['dep'])
+            dep_order.append(deps['dependent'])
+
+        # make char_offsets relative to start of sentence
+        abs_sent_offset = parts['char_offsets'][0]
+        parts['char_offsets'] = [p - abs_sent_offset for p in parts['char_offsets']]
+        parts['dep_parents'] = sort_X_on_Y(dep_par, dep_order)
+        parts['dep_labels'] = sort_X_on_Y(dep_lab, dep_order)
+
+        # NOTE: We have observed weird bugs where CoreNLP diverges from raw document text (see Issue #368)
+        # In these cases we go with CoreNLP so as not to cause downstream issues but throw a warning
+        doc_text = text[block['tokens'][0]['characterOffsetBegin'] : block['tokens'][-1]['characterOffsetEnd']]
+        L = len(block['tokens'])
+        parts['text'] = ''.join(t['originalText'] + t['after'] if i < L - 1 else t['originalText'] for i,t in enumerate(block['tokens']))
+        if not diverged and doc_text != parts['text']:
+            diverged = True
+            #warnings.warn("CoreNLP parse has diverged from raw document text!")
+        parts['position'] = position
+        
+        # replace PennTreeBank tags with original forms
+        parts['words'] = [PTB[w] if w in PTB else w for w in parts['words']]
+        parts['lemmas'] = [PTB[w.upper()] if w.upper() in PTB else w for w in parts['lemmas']]
+
+        # Link the sentence to its parent document object
+        parts['document'] = document
+
+        # Assign the stable id as document's stable id plus absolute character offset
+        abs_sent_offset_end = abs_sent_offset + parts['char_offsets'][-1] + len(parts['words'][-1])
+        parts['stable_id'] = construct_stable_id(document, 'sentence', abs_sent_offset, abs_sent_offset_end)
+        position += 1
+        yield parts
+
+
+def corenlp_make_endpoint(server = '127.0.0.1', port = 12345, tok_whitespace = False):
+    props = "\"tokenize.whitespace\": \"true\"," if tok_whitespace else ""
+    self.endpoint = 'http://%s:%d/?properties={%s"annotators": "tokenize,ssplit,pos,lemma,depparse,ner", "outputFormat": "json"}' \
+            % (server, port, props)
+
+
 class CoreNLPHandler:
     def __init__(self, tok_whitespace=False):
         # http://stanfordnlp.github.io/CoreNLP/corenlp-server.html
@@ -182,8 +255,7 @@ class CoreNLPHandler:
                % (loc, self.port, 600000)]
         self.server_pid = Popen(cmd, shell=True).pid
         atexit.register(self._kill_pserver)
-        props = "\"tokenize.whitespace\": \"true\"," if self.tok_whitespace else ""
-        self.endpoint = 'http://127.0.0.1:%d/?properties={%s"annotators": "tokenize,ssplit,pos,lemma,depparse,ner", "outputFormat": "json"}' % (self.port, props)
+        self.endpoint = corenlp_make_endpoint('127.0.0.1', self.port, self.tok_whitespace)
 
         # Following enables retries to cope with CoreNLP server boot-up latency
         # See: http://stackoverflow.com/a/35504626
@@ -196,75 +268,17 @@ class CoreNLPHandler:
                         backoff_factor=0.1,
                         status_forcelist=[ 500, 502, 503, 504 ])
         self.requests_session.mount('http://', HTTPAdapter(max_retries=retries))
-    
+
+    def parse(self, document, text):
+        resp = corenlp_make_sync_request(self.requests_session, self.endpoint, text)
+        return corenlp_parse_response(document, text, resp)
+
     def _kill_pserver(self):
         if self.server_pid is not None:
             try:
                 os.kill(self.server_pid, signal.SIGTERM)
             except:
                 sys.stderr.write('Could not kill CoreNLP server. Might already got killt...\n')
-
-    def parse(self, document, text):
-        """Parse a raw document as a string into a list of sentences"""
-        if len(text.strip()) == 0:
-            return
-        if isinstance(text, unicode):
-            text = text.encode('utf-8', 'error')
-        resp = self.requests_session.post(self.endpoint, data=text, allow_redirects=True)
-        text = text.decode('utf-8')
-        content = resp.content.strip()
-        if content.startswith("Request is too long"):
-            raise ValueError("File {} too long. Max character count is 100K.".format(document.name))
-        if content.startswith("CoreNLP request timed out"):
-            raise ValueError("CoreNLP request timed out on file {}.".format(document.name))
-        try:
-            blocks = json.loads(content, strict=False)['sentences']
-        except:
-            print "SKIPPED A MALFORMED SENTENCE!"
-            return
-        position = 0
-        diverged = False
-        for block in blocks:
-            parts = defaultdict(list)
-            dep_order, dep_par, dep_lab = [], [], []
-            for tok, deps in zip(block['tokens'], block['basic-dependencies']):
-                parts['words'].append(tok['word'])
-                parts['lemmas'].append(tok['lemma'])
-                parts['pos_tags'].append(tok['pos'])
-                parts['ner_tags'].append(tok['ner'])
-                parts['char_offsets'].append(tok['characterOffsetBegin'])
-                dep_par.append(deps['governor'])
-                dep_lab.append(deps['dep'])
-                dep_order.append(deps['dependent'])
-
-            # make char_offsets relative to start of sentence
-            abs_sent_offset = parts['char_offsets'][0]
-            parts['char_offsets'] = [p - abs_sent_offset for p in parts['char_offsets']]
-            parts['dep_parents'] = sort_X_on_Y(dep_par, dep_order)
-            parts['dep_labels'] = sort_X_on_Y(dep_lab, dep_order)
-
-            # NOTE: We have observed weird bugs where CoreNLP diverges from raw document text (see Issue #368)
-            # In these cases we go with CoreNLP so as not to cause downstream issues but throw a warning
-            doc_text = text[block['tokens'][0]['characterOffsetBegin'] : block['tokens'][-1]['characterOffsetEnd']]
-            L = len(block['tokens'])
-            parts['text'] = ''.join(t['originalText'] + t['after'] if i < L - 1 else t['originalText'] for i,t in enumerate(block['tokens']))
-            if not diverged and doc_text != parts['text']:
-                diverged = True
-                #warnings.warn("CoreNLP parse has diverged from raw document text!")
-            parts['position'] = position
-            
-            # replace PennTreeBank tags with original forms
-            parts['words'] = [PTB[w] if w in PTB else w for w in parts['words']]
-            parts['lemmas'] = [PTB[w.upper()] if w.upper() in PTB else w for w in parts['lemmas']]
-
-            # Link the sentence to its parent document object
-            parts['document'] = document
-
-            # Assign the stable id as document's stable id plus absolute character offset
-            abs_sent_offset_end = abs_sent_offset + parts['char_offsets'][-1] + len(parts['words'][-1])
-            parts['stable_id'] = construct_stable_id(document, 'sentence', abs_sent_offset, abs_sent_offset_end)
-            position += 1
-            yield parts
 
 
 class SentenceParser(object):
