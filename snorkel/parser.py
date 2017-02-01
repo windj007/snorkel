@@ -240,6 +240,23 @@ def corenlp_make_endpoint(server = '127.0.0.1', port = 12345, tok_whitespace = F
             % (server, port, props)
 
 
+def corenlp_make_session(session_ctor = None):
+    if session_ctor is None:
+        from requests.packages.urllib3.util.retry import Retry
+        from requests.adapters import HTTPAdapter
+        requests_session = requests.Session()
+    else:
+        requests_session = session_ctor()
+
+    retries = Retry(total=None,
+                    connect=20,
+                    read=0,
+                    backoff_factor=0.1,
+                    status_forcelist=[ 500, 502, 503, 504 ])
+    requests_session.mount('http://', HTTPAdapter(max_retries=retries))
+    return requests_session
+
+
 class CoreNLPRunner(object):
     def __init__(self, port = 12345):
         self.port = port
@@ -273,15 +290,7 @@ class CoreNLPHandler:
 
         # Following enables retries to cope with CoreNLP server boot-up latency
         # See: http://stackoverflow.com/a/35504626
-        from requests.packages.urllib3.util.retry import Retry
-        from requests.adapters import HTTPAdapter
-        self.requests_session = requests.Session()
-        retries = Retry(total=None,
-                        connect=20,
-                        read=0,
-                        backoff_factor=0.1,
-                        status_forcelist=[ 500, 502, 503, 504 ])
-        self.requests_session.mount('http://', HTTPAdapter(max_retries=retries))
+        self.requests_session = corenlp_make_session()
 
     def parse(self, document, text):
         resp = corenlp_make_request(self.requests_session, self.endpoint, text)
