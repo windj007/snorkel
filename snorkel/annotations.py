@@ -3,6 +3,8 @@ from pandas import DataFrame, Series
 import scipy.sparse as sparse
 from sqlalchemy.sql import bindparam, select
 
+from sqlalchemy import tuple_
+
 from .features import get_span_feats
 from .models import GoldLabel, GoldLabelKey, Label, LabelKey, Feature, FeatureKey, Candidate
 from .models.meta import new_sessionmaker
@@ -92,10 +94,10 @@ class csr_LabelMatrix(csr_AnnotationMatrix):
 
 class Annotator(UDFRunner):
     """Abstract class for annotating candidates and persisting these annotations to DB"""
-    def __init__(self, annotation_class, annotation_key_class, f):
+    def __init__(self, annotation_class, annotation_key_class, f, udf_cls):
         self.annotation_class     = annotation_class
         self.annotation_key_class = annotation_key_class
-        super(Annotator, self).__init__(AnnotatorUDF,
+        super(Annotator, self).__init__(udf_cls,
                                         annotation_class=annotation_class,
                                         annotation_key_class=annotation_key_class,
                                         f=f)
@@ -239,10 +241,60 @@ class AnnotatorUDF(UDF):
             # Updates the Annotation, assuming one might already exist, if try_update = True
             if not clear:
                 res = self.session.execute(anno_update_query, {'cid': cid, 'kid': key_id, 'value': value})
-
             # If Annotation does not exist, insert
             if (clear or res.rowcount == 0) and value != 0:
                 self.session.execute(anno_insert_query, {'candidate_id': cid, 'key_id': key_id, 'value': value})
+
+
+class BatchReduceAnnotatorUDF(AnnotatorUDF):
+    DELETE_BATCH_SIZE = 1000
+    def __init__(self, *args, **kwargs):
+        super(BatchReduceAnnotatorUDF, self).__init__(*args, **kwargs)
+        self._keys = {}
+        self._records = []
+
+    def reduce(self, y, clear, key_group, replace_key_set, **kwargs):
+        cid, key_name, value = y
+        key_id = self._keys.get(key_name)
+        if key_id is None:
+            key_id = len(self._keys)
+            self._keys[key_name] = key_id
+        self._records.append((cid, key_id, value))
+
+    def finalize_reduce(self, clear, key_group, replace_key_set, **kwargs):
+        # get real ids for all keys
+        key_name_to_real_id = { ann.name : ann.id
+                                for ann in 
+                                self.session.query(self.annotation_key_class) \
+                                    .filter(self.annotation_key_class.group == key_group) \
+                                    .filter(self.annotation_key_class.name.in_(self._keys.keys()))
+                                    .all() }
+        self.session.bulk_insert_mappings(self.annotation_key_class,
+                                          [dict(name=k, group=key_group)
+                                           for k in self._keys.viewkeys()
+                                           if not k in key_name_to_real_id])
+        tmp_key_id_to_real = { self._keys[ann.name] : ann.id
+                               for ann in 
+                               self.session.query(self.annotation_key_class) \
+                                   .filter(self.annotation_key_class.group == key_group) \
+                                   .filter(self.annotation_key_class.name.in_(self._keys.keys()))
+                                   .all() }
+        assert len(tmp_key_id_to_real) == len(self._keys)
+        if not replace_key_set: # we have to remove conflicting records
+            annotations_to_drop = [(cid, tmp_key_id_to_real[key_id])
+                                   for cid, key_id, _ in self._records]
+            for start in xrange(0, len(annotations_to_drop), self.DELETE_BATCH_SIZE):
+                self.session.query(self.annotation_class) \
+                    .filter(tuple_(self.annotation_class.candidate_id,
+                                   self.annotation_class.key_id)
+                                .in_(annotations_to_drop[start:start + self.DELETE_BATCH_SIZE])) \
+                    .delete(synchronize_session='fetch')
+
+        self.session.bulk_insert_mappings(self.annotation_class,
+                                          [dict(candidate_id=cid,
+                                                key_id=tmp_key_id_to_real[key_id],
+                                                value=value)
+                                           for cid, key_id, value in self._records])
 
 
 def load_matrix(matrix_class, annotation_key_class, annotation_class, session, split=0, key_group=0, key_names=None):
@@ -316,7 +368,7 @@ def load_gold_labels(session, annotator_name, **kwargs):
 class LabelAnnotator(Annotator):
     """Apply labeling functions to the candidates, generating Label annotations"""
     def __init__(self, f):
-        super(LabelAnnotator, self).__init__(Label, LabelKey, f)
+        super(LabelAnnotator, self).__init__(Label, LabelKey, f, BatchReduceAnnotatorUDF)
 
     def load_matrix(self, session, split, **kwargs):
         return load_label_matrix(session, split=split, **kwargs)
@@ -325,7 +377,7 @@ class LabelAnnotator(Annotator):
 class FeatureAnnotator(Annotator):
     """Apply feature generators to the candidates, generating Feature annotations"""
     def __init__(self, f=get_span_feats):
-        super(FeatureAnnotator, self).__init__(Feature, FeatureKey, f)
+        super(FeatureAnnotator, self).__init__(Feature, FeatureKey, f, BatchReduceAnnotatorUDF)
 
     def load_matrix(self, session, split, key_group=0, **kwargs):
         return load_feature_matrix(session, split=split, key_group=key_group, **kwargs)

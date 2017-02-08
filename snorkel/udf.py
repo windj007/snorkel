@@ -68,6 +68,9 @@ class UDFRunner(object):
                 else:
                     udf.session.add(y)
 
+        if hasattr(self.udf_class, 'finalize_reduce'):
+            udf.finalize_reduce(**kwargs)
+
         # Commit session and close progress bar if applicable
         udf.session.commit()
         if pb:
@@ -111,6 +114,8 @@ class UDFRunner(object):
                     except Empty:
                         break
                 self.reducer.session.commit()
+            if hasattr(self.udf_class, 'finalize_reduce'):
+                self.reducer.finalize_reduce(**kwargs)
             self.reducer.session.close()
 
         # Otherwise just join on the UDF.apply actions
@@ -166,3 +171,6 @@ class UDF(Process):
     def apply(self, x, **kwargs):
         """This function takes in an object, and returns a generator / set / list"""
         raise NotImplementedError()
+
+    def finalize_reduce(self, **kwargs):
+        pass
