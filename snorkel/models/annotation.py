@@ -84,7 +84,7 @@ class AnnotationMixin(object):
 
     @declared_attr
     def key(cls):
-        return relationship('%sKey' % cls.__name__, backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan'))
+        return relationship('%sKey' % cls.get_key_relation_prefix(), backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan'))
 
     # Every annotation is with respect to a candidate
     @declared_attr
@@ -95,6 +95,10 @@ class AnnotationMixin(object):
     def candidate(cls):
         return relationship('Candidate', backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan', cascade_backrefs=False),
                             cascade_backrefs=False)
+
+    @classmethod
+    def get_key_relation_prefix(cls):
+        return cls.__name__
 
     @classmethod
     def get_key_table_prefix(cls):
@@ -112,8 +116,12 @@ class AnnotationsBundleMixin(AnnotationMixin):
     value = Column(String, nullable = False)
 
     @classmethod
+    def get_key_relation_prefix(cls):
+        return cls.__name__[:-7] # remove sBundle from the end of classname
+
+    @classmethod
     def get_key_table_prefix(cls):
-        return cls.__tablename__[:-8] # remove _bundle from the end of tablename
+        return cls.__tablename__[:-8] # remove s_bundle from the end of tablename
 
 
 class GoldLabel(AnnotationMixin, SnorkelBase):
