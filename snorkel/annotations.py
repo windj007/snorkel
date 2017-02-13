@@ -19,6 +19,12 @@ from .utils import (
     matrix_tn
 )
 
+import postgres_copy, csv
+try:
+    import cStringIO as StringIO
+except:
+    import StringIO
+
 
 class csr_AnnotationMatrix(sparse.csr_matrix):
     """
@@ -246,6 +252,17 @@ class AnnotatorUDF(UDF):
                 self.session.execute(anno_insert_query, {'candidate_id': cid, 'key_id': key_id, 'value': value})
 
 
+
+def make_csv_buf(records):
+    buf = StringIO.StringIO()
+    writer = csv.writer(buf,
+                        delimiter = ';',
+                        quotechar = '"')
+    for row in records:
+        writer.writerow(row)
+    return StringIO.StringIO(buf.getvalue())
+
+
 class BatchReduceAnnotatorUDF(AnnotatorUDF):
     DELETE_BATCH_SIZE = 1000
     def __init__(self, *args, **kwargs):
@@ -269,10 +286,20 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                     .filter(self.annotation_key_class.group == key_group) \
                                     .filter(self.annotation_key_class.name.in_(self._keys.keys()))
                                     .all() }
-        self.session.bulk_insert_mappings(self.annotation_key_class,
-                                          [dict(name=k, group=key_group)
-                                           for k in self._keys.viewkeys()
-                                           if not k in key_name_to_real_id])
+        csv_buf = make_csv_buf((k, key_group)
+                               for k in self._keys.viewkeys()
+                               if not k in key_name_to_real_id)
+        postgres_copy.copy_from(csv_buf,
+                                self.annotation_key_class,
+                                self.session.get_bind(),
+                                columns = ('"name"', '"group"'),
+                                format='csv',
+                                delimiter=';',
+                                quote='"')
+        #self.session.bulk_insert_mappings(self.annotation_key_class,
+        #                                  [dict(name=k, group=key_group)
+        #                                   for k in self._keys.viewkeys()
+        #                                   if not k in key_name_to_real_id])
         tmp_key_id_to_real = { self._keys[ann.name] : ann.id
                                for ann in 
                                self.session.query(self.annotation_key_class) \
@@ -290,11 +317,20 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 .in_(annotations_to_drop[start:start + self.DELETE_BATCH_SIZE])) \
                     .delete(synchronize_session='fetch')
 
-        self.session.bulk_insert_mappings(self.annotation_class,
-                                          [dict(candidate_id=cid,
-                                                key_id=tmp_key_id_to_real[key_id],
-                                                value=value)
-                                           for cid, key_id, value in self._records])
+        csv_buf = make_csv_buf((cid, tmp_key_id_to_real[key_id], value)
+                               for cid, key_id, value in self._records)
+        postgres_copy.copy_from(csv_buf,
+                                self.annotation_class,
+                                self.session.get_bind(),
+                                columns = ('"candidate_id"', '"key_id"', '"value"'),
+                                format='csv',
+                                delimiter=';',
+                                quote='"')
+        #self.session.bulk_insert_mappings(self.annotation_class,
+        #                                  [dict(candidate_id=cid,
+        #                                        key_id=tmp_key_id_to_real[key_id],
+        #                                        value=value)
+        #                                   for cid, key_id, value in self._records])
 
 
 def load_matrix(matrix_class, annotation_key_class, annotation_class, session, split=0, key_group=0, key_names=None):
