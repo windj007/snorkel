@@ -100,6 +100,14 @@ class AnnotationMixin(object):
         return self.__class__.__name__ + " (" + str(self.key.name) + " = " + str(self.value) + ")"
 
 
+class AnnotationsBundleMixin(AnnotationMixin):
+    """
+    Mixin for defining bundled annotations.
+    Stores values for all keys of the corresonding group in a Picklable field.
+    """
+    value = Column(String, nullable = False)
+
+
 class GoldLabel(AnnotationMixin, SnorkelBase):
     """A separate class for labels from human annotators or other gold standards."""
     value = Column(Integer, nullable=False)
@@ -116,6 +124,13 @@ class Label(AnnotationMixin, SnorkelBase):
     value = Column(Integer, nullable=False)
 
 
+class LabelsBundle(AnnotationsBundleMixin, SnorkelBase):
+    """
+    A set of discrete labels associated with a Candidate, indicating target prediction values.
+    """
+    pass
+
+
 class Feature(AnnotationMixin, SnorkelBase):
     """
     An element of a representation of a Candidate in a feature space.
@@ -124,6 +139,14 @@ class Feature(AnnotationMixin, SnorkelBase):
     or the library name and feature name in an automatic featurization library.
     """
     value = Column(Float, nullable=False)
+
+
+class FeaturesBundle(AnnotationsBundleMixin, SnorkelBase):
+    """
+    Representation of a Candidate in a feature space.
+    All the features in a single object.
+    """
+    pass
 
 
 class Prediction(AnnotationMixin, SnorkelBase):

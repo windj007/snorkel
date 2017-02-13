@@ -1,12 +1,14 @@
 import numpy as np
 from pandas import DataFrame, Series
 import scipy.sparse as sparse
+import collections, base64
 from sqlalchemy.sql import bindparam, select
 
 from sqlalchemy import tuple_
 
 from .features import get_span_feats
-from .models import GoldLabel, GoldLabelKey, Label, LabelKey, Feature, FeatureKey, Candidate
+from .models import GoldLabel, GoldLabelKey, Label, LabelKey, LabelsBundle, \
+    Feature, FeatureKey, FeaturesBundle, Candidate
 from .models.meta import new_sessionmaker
 from .udf import UDF, UDFRunner
 from .utils import (
@@ -22,8 +24,12 @@ from .utils import (
 import postgres_copy, csv
 try:
     import cStringIO as StringIO
-except:
+except ImportError:
     import StringIO
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 
 class csr_AnnotationMatrix(sparse.csr_matrix):
@@ -263,20 +269,33 @@ def make_csv_buf(records):
     return StringIO.StringIO(buf.getvalue())
 
 
+def serialize_features(lst):
+    buf = StringIO.StringIO()
+    pickle.dump(lst, buf, protocol=pickle.HIGHEST_PROTOCOL)
+    return base64.encodestring(buf.getvalue())
+
+
+def deserialize_features(buf):
+    return pickle.load(StringIO.StringIO(base64.decodestring(buf)))
+
+
 class BatchReduceAnnotatorUDF(AnnotatorUDF):
     DELETE_BATCH_SIZE = 1000
+    BUNDLE_FAKE_KEY_NAME = '__FAKE_ANNOTATION_BUNDLE_KEY'
+    BUNDLE_FAKE_KEY_TMP_ID = 0
+
     def __init__(self, *args, **kwargs):
         super(BatchReduceAnnotatorUDF, self).__init__(*args, **kwargs)
-        self._keys = {}
-        self._records = []
+        self._keys = { self.BUNDLE_FAKE_KEY_NAME : BUNDLE_FAKE_KEY_TMP_ID }
+        self._annotations = collections.defaultdict(dict)
 
     def reduce(self, y, clear, key_group, replace_key_set, **kwargs):
         cid, key_name, value = y
-        key_id = self._keys.get(key_name)
-        if key_id is None:
-            key_id = len(self._keys)
-            self._keys[key_name] = key_id
-        self._records.append((cid, key_id, value))
+        tmp_key_id = self._keys.get(key_name)
+        if tmp_key_id is None:
+            tmp_key_id = len(self._keys)
+            self._keys[key_name] = tmp_key_id
+        self._annotations[cid][tmp_key_id] = value
 
     def finalize_reduce(self, clear, key_group, replace_key_set, **kwargs):
         # get real ids for all keys
@@ -296,10 +315,7 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 format='csv',
                                 delimiter=';',
                                 quote='"')
-        #self.session.bulk_insert_mappings(self.annotation_key_class,
-        #                                  [dict(name=k, group=key_group)
-        #                                   for k in self._keys.viewkeys()
-        #                                   if not k in key_name_to_real_id])
+
         tmp_key_id_to_real = { self._keys[ann.name] : ann.id
                                for ann in 
                                self.session.query(self.annotation_key_class) \
@@ -317,8 +333,15 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 .in_(annotations_to_drop[start:start + self.DELETE_BATCH_SIZE])) \
                     .delete(synchronize_session='fetch')
 
-        csv_buf = make_csv_buf((cid, tmp_key_id_to_real[key_id], value)
-                               for cid, key_id, value in self._records)
+        fake_key_id = tmp_key_id_to_real[BUNDLE_FAKE_KEY_TMP_ID]
+        csv_buf = make_csv_buf((cid,
+                                fake_key_id,
+                                serialize_feature_dict([(tmp_key_id_to_real[tmp_key_id],
+                                                         v)
+                                                        for tmp_key_id, v
+                                                        in six.iteritems(candidate_features)]))
+                               for cid, candidate_features
+                               in six.iteritems(self._annotations))
         postgres_copy.copy_from(csv_buf,
                                 self.annotation_class,
                                 self.session.get_bind(),
@@ -326,11 +349,7 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 format='csv',
                                 delimiter=';',
                                 quote='"')
-        #self.session.bulk_insert_mappings(self.annotation_class,
-        #                                  [dict(candidate_id=cid,
-        #                                        key_id=tmp_key_id_to_real[key_id],
-        #                                        value=value)
-        #                                   for cid, key_id, value in self._records])
+        self._keys = { self.BUNDLE_FAKE_KEY_NAME : BUNDLE_FAKE_KEY_TMP_ID }
 
 
 def load_matrix(matrix_class, annotation_key_class, annotation_class, session, split=0, key_group=0, key_names=None):
@@ -389,12 +408,81 @@ def load_matrix(matrix_class, annotation_key_class, annotation_class, session, s
                         annotation_key_cls=annotation_key_class, key_index=kid_to_col, col_index=col_to_kid)
 
 
+def load_bundled_matrix(matrix_class, annotation_key_class, annotations_bundle_class, session, split=0, key_group=0, key_names=None):
+    """
+    Returns the annotations corresponding to a split of candidates with N members
+    and an AnnotationKey group with M distinct keys as an N x M CSR sparse matrix.
+    """
+    cid_query = session.query(Candidate.id)
+    cid_query = cid_query.filter(Candidate.split == split)
+    cid_query = cid_query.order_by(Candidate.id)
+
+    keys_query = session.query(annotation_key_class.id)
+    keys_query = keys_query.filter(annotation_key_class.group == key_group)
+    if key_names is not None:
+        keys_query = keys_query.filter(annotation_key_class.name.in_(frozenset(key_names)))
+    keys_query = keys_query.order_by(annotation_key_class.id)
+
+    # First, we query to construct the row index map
+    cid_to_row = {}
+    row_to_cid = {}
+    for cid, in cid_query.all():
+        if cid not in cid_to_row:
+            j = len(cid_to_row)
+
+            # Create both mappings
+            cid_to_row[cid] = j
+            row_to_cid[j]   = cid
+
+    # Second, we query to construct the column index map
+    kid_to_col = {}
+    col_to_kid = {}
+    for kid, in keys_query.all():
+        if kid not in kid_to_col:
+            j = len(kid_to_col)
+
+            # Create both mappings
+            kid_to_col[kid] = j
+            col_to_kid[j]   = kid
+
+    # Create sparse matrix in LIL format for incremental construction
+    X = sparse.lil_matrix((len(cid_to_row), len(kid_to_col)))
+
+    # NOTE: This is much faster as it allows us to skip the above join (which for some reason is
+    # unreasonably slow) by relying on our symbol tables from above; however this will get slower with
+    # The total number of annotations in DB which is weird behavior...
+    q = session.query(annotations_bundle_class.candidate_id, annotations_bundle_class.value)
+    q = q.order_by(annotations_bundle_class.candidate_id)
+    
+    # Iteratively construct row index and output sparse matrix
+    for cid, bundle in q.all():
+        if not cid in cid_to_row:
+            continue
+        row_i = cid_to_row[cid]
+        for kid, val in deserialize_features(bundle):
+            if kid in kid_to_col:
+                X[row_i, kid_to_col[kid]] = val
+
+    # Return as an AnnotationMatrix
+    return matrix_class(X, candidate_index=cid_to_row, row_index=row_to_cid,
+                        annotation_key_cls=annotation_key_class, key_index=kid_to_col, col_index=col_to_kid)
+
+
+
 def load_label_matrix(session, **kwargs):
     return load_matrix(csr_LabelMatrix, LabelKey, Label, session, **kwargs)
 
 
+def load_bundled_label_matrix(session, **kwargs):
+    return load_bundled_matrix(csr_LabelMatrix, LabelKey, LabelsBundle, session, **kwargs)
+
+
 def load_feature_matrix(session, **kwargs):
     return load_matrix(csr_AnnotationMatrix, FeatureKey, Feature, session, **kwargs)
+
+
+def load_bundled_feature_matrix(session, **kwargs):
+    return load_bundled_matrix(csr_AnnotationMatrix, FeatureKey, FeaturesBundle, session, **kwargs)
 
 
 def load_gold_labels(session, annotator_name, **kwargs):
@@ -404,19 +492,27 @@ def load_gold_labels(session, annotator_name, **kwargs):
 class LabelAnnotator(Annotator):
     """Apply labeling functions to the candidates, generating Label annotations"""
     def __init__(self, f):
-        super(LabelAnnotator, self).__init__(Label, LabelKey, f, BatchReduceAnnotatorUDF)
+        super(LabelAnnotator, self).__init__(LabelsBundle,
+                                             LabelKey,
+                                             f,
+                                             BatchReduceAnnotatorUDF)
 
     def load_matrix(self, session, split, **kwargs):
-        return load_label_matrix(session, split=split, **kwargs)
+        return load_bundled_label_matrix(session, split=split, **kwargs)
+        #return load_label_matrix(session, split=split, **kwargs)
 
         
 class FeatureAnnotator(Annotator):
     """Apply feature generators to the candidates, generating Feature annotations"""
     def __init__(self, f=get_span_feats):
-        super(FeatureAnnotator, self).__init__(Feature, FeatureKey, f, BatchReduceAnnotatorUDF)
+        super(FeatureAnnotator, self).__init__(FeaturesBundle,
+                                               FeatureKey,
+                                               f,
+                                               BatchReduceAnnotatorUDF)
 
     def load_matrix(self, session, split, key_group=0, **kwargs):
-        return load_feature_matrix(session, split=split, key_group=key_group, **kwargs)
+        return load_bundled_feature_matrix(session, split=split, **kwargs)
+        # return load_feature_matrix(session, split=split, key_group=key_group, **kwargs)
 
 
 def _to_annotation_generator(fns):
