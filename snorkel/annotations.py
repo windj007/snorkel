@@ -1,7 +1,7 @@
 import numpy as np
 from pandas import DataFrame, Series
 import scipy.sparse as sparse
-import collections, base64
+import collections, base64, six
 from sqlalchemy.sql import bindparam, select
 
 from sqlalchemy import tuple_
@@ -286,7 +286,7 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
 
     def __init__(self, *args, **kwargs):
         super(BatchReduceAnnotatorUDF, self).__init__(*args, **kwargs)
-        self._keys = { self.BUNDLE_FAKE_KEY_NAME : BUNDLE_FAKE_KEY_TMP_ID }
+        self._keys = { self.BUNDLE_FAKE_KEY_NAME : self.BUNDLE_FAKE_KEY_TMP_ID }
         self._annotations = collections.defaultdict(dict)
 
     def reduce(self, y, clear, key_group, replace_key_set, **kwargs):
@@ -322,10 +322,11 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                    .filter(self.annotation_key_class.group == key_group) \
                                    .filter(self.annotation_key_class.name.in_(self._keys.keys()))
                                    .all() }
+        fake_key_id = tmp_key_id_to_real[self.BUNDLE_FAKE_KEY_TMP_ID]
+
         assert len(tmp_key_id_to_real) == len(self._keys)
         if not replace_key_set: # we have to remove conflicting records
-            annotations_to_drop = [(cid, tmp_key_id_to_real[key_id])
-                                   for cid, key_id, _ in self._records]
+            annotations_to_drop = [(cid, fake_key_id) for cid in self._annotations]
             for start in xrange(0, len(annotations_to_drop), self.DELETE_BATCH_SIZE):
                 self.session.query(self.annotation_class) \
                     .filter(tuple_(self.annotation_class.candidate_id,
@@ -333,14 +334,13 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 .in_(annotations_to_drop[start:start + self.DELETE_BATCH_SIZE])) \
                     .delete(synchronize_session='fetch')
 
-        fake_key_id = tmp_key_id_to_real[BUNDLE_FAKE_KEY_TMP_ID]
         csv_buf = make_csv_buf((cid,
                                 fake_key_id,
-                                serialize_feature_dict([(tmp_key_id_to_real[tmp_key_id],
-                                                         v)
-                                                        for tmp_key_id, v
-                                                        in six.iteritems(candidate_features)]))
-                               for cid, candidate_features
+                                serialize_features([(tmp_key_id_to_real[tmp_key_id],
+                                                     v)
+                                                    for tmp_key_id, v
+                                                    in six.iteritems(candidate_annots)]))
+                               for cid, candidate_annots
                                in six.iteritems(self._annotations))
         postgres_copy.copy_from(csv_buf,
                                 self.annotation_class,
@@ -349,7 +349,8 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 format='csv',
                                 delimiter=';',
                                 quote='"')
-        self._keys = { self.BUNDLE_FAKE_KEY_NAME : BUNDLE_FAKE_KEY_TMP_ID }
+        self._keys = { self.BUNDLE_FAKE_KEY_NAME : self.BUNDLE_FAKE_KEY_TMP_ID }
+        self._annotations = collections.defaultdict(dict)
 
 
 def load_matrix(matrix_class, annotation_key_class, annotation_class, session, split=0, key_group=0, key_names=None):

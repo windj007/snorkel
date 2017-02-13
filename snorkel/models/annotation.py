@@ -80,7 +80,7 @@ class AnnotationMixin(object):
     # The key is the "name" or "type" of the Annotation- e.g. the name of a feature, or of a human annotator
     @declared_attr
     def key_id(cls):
-        return Column('key_id', Integer, ForeignKey('%s_key.id' % cls.__tablename__, ondelete='CASCADE'), primary_key=True)
+        return Column('key_id', Integer, ForeignKey('%s_key.id' % cls.get_key_table_prefix(), ondelete='CASCADE'), primary_key=True)
 
     @declared_attr
     def key(cls):
@@ -96,6 +96,10 @@ class AnnotationMixin(object):
         return relationship('Candidate', backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan', cascade_backrefs=False),
                             cascade_backrefs=False)
 
+    @classmethod
+    def get_key_table_prefix(cls):
+        return cls.__tablename__
+
     def __repr__(self):
         return self.__class__.__name__ + " (" + str(self.key.name) + " = " + str(self.value) + ")"
 
@@ -106,6 +110,10 @@ class AnnotationsBundleMixin(AnnotationMixin):
     Stores values for all keys of the corresonding group in a Picklable field.
     """
     value = Column(String, nullable = False)
+
+    @classmethod
+    def get_key_table_prefix(cls):
+        return cls.__tablename__[:-8] # remove _bundle from the end of tablename
 
 
 class GoldLabel(AnnotationMixin, SnorkelBase):
