@@ -293,6 +293,8 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
         cid, key_name, value = y
         tmp_key_id = self._keys.get(key_name)
         if tmp_key_id is None:
+            if not replace_key_set: # we are not allowed to extend features
+                return
             tmp_key_id = len(self._keys)
             self._keys[key_name] = tmp_key_id
         self._annotations[cid][tmp_key_id] = value
@@ -305,16 +307,17 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                     .filter(self.annotation_key_class.group == key_group) \
                                     .filter(self.annotation_key_class.name.in_(self._keys.keys()))
                                     .all() }
-        csv_buf = make_csv_buf((k, key_group)
-                               for k in self._keys.viewkeys()
-                               if not k in key_name_to_real_id)
-        postgres_copy.copy_from(csv_buf,
-                                self.annotation_key_class,
-                                self.session.get_bind(),
-                                columns = ('"name"', '"group"'),
-                                format='csv',
-                                delimiter=';',
-                                quote='"')
+        if replace_key_set:
+            csv_buf = make_csv_buf((k, key_group)
+                                for k in self._keys.viewkeys()
+                                if not k in key_name_to_real_id)
+            postgres_copy.copy_from(csv_buf,
+                                    self.annotation_key_class,
+                                    self.session.get_bind(),
+                                    columns = ('"name"', '"group"'),
+                                    format='csv',
+                                    delimiter=';',
+                                    quote='"')
 
         tmp_key_id_to_real = { self._keys[ann.name] : ann.id
                                for ann in 
@@ -349,7 +352,6 @@ class BatchReduceAnnotatorUDF(AnnotatorUDF):
                                 format='csv',
                                 delimiter=';',
                                 quote='"')
-        self._keys = { self.BUNDLE_FAKE_KEY_NAME : self.BUNDLE_FAKE_KEY_TMP_ID }
         self._annotations = collections.defaultdict(dict)
 
 
