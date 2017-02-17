@@ -143,18 +143,17 @@ class Annotator(UDFRunner):
         If replace_key_set=True, deletes *all* Annotations (of this Annotation sub-class)
         and also deletes all AnnotationKeys (of this sub-class)
         """
-        query = session.query(self.annotation_class)
         
-        # If replace_key_set=False, then we just delete the annotations for candidates in our split
-        if not replace_key_set:
-            sub_query = session.query(Candidate.id).filter(Candidate.split == split).subquery()
-            query     = query.filter(self.annotation_class.candidate_id.in_(sub_query))
-        query.delete(synchronize_session='fetch')
-
-        # If we are creating a new key set, delete all old annotation keys
         if replace_key_set:
+            # If we are creating a new key set, delete all old annotation keys
             query = session.query(self.annotation_key_class)
             query = query.filter(self.annotation_key_class.group == key_group)
+            query.delete(synchronize_session='fetch')
+        else:
+            # If replace_key_set=False, then we just delete the annotations for candidates in our split
+            sub_query = session.query(Candidate.id).filter(Candidate.split == split).subquery()
+            query = session.query(self.annotation_class)
+            query = query.filter(self.annotation_class.candidate_id.in_(sub_query))
             query.delete(synchronize_session='fetch')
 
     def apply_existing(self, split, key_group=0, **kwargs):
