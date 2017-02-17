@@ -513,7 +513,10 @@ class FeatureAnnotator(Annotator):
                                                BatchReduceAnnotatorUDF)
 
     def load_matrix(self, session, split, key_group=0, **kwargs):
-        return load_bundled_feature_matrix(session, split=split, **kwargs)
+        return load_bundled_feature_matrix(session,
+                                           split=split,
+                                           key_group=key_group,
+                                           **kwargs)
         # return load_feature_matrix(session, split=split, key_group=key_group, **kwargs)
 
 
